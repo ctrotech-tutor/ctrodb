@@ -1,140 +1,229 @@
-# 💧 CtroDB
+# 💧 CtroDB: The Reactive JavaScript Database
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Version: 1.0.0](https://img.shields.io/badge/version-1.0.0-brightgreen.svg)](https://www.npmjs.com/package/ctrodb)
-[![Build Status: Passing](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/ctrotech-tutor/ctrodb/actions)
+[![NPM Version](https://img.shields.io/npm/v/ctrodb.svg)](https://www.npmjs.com/package/ctrodb)
+[![License: MIT](https://img.shields.io/npm/l/ctrodb.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/main.yml?branch=main)](https://github.com/ctrotech-tutor/ctrodb/actions)
+[![Minified Size](https://img.shields.io/bundlephobia/min/ctrodb.svg)](https://bundlephobia.com/result?p=ctrodb)
 
-**CtroDB is a modern, high-performance, and reactive client-side database from Ctrotech. Built with zero dependencies and based on Ctrotech Tutor insights, it focuses on speed, a clean API, and a powerful, live query system.**
+**CtroDB is a modern, high-performance, and reactive client-side database from Ctrotech. Built with zero dependencies and based on Ctrotech Tutor insights, it provides a structured, relational-like API on top of the browser's native IndexedDB, giving you the best of both worlds: performance and developer experience.**
 
-CtroDB makes it easy to build complex, data-driven applications that feel incredibly fast and responsive. It provides a structured, relational-like API on top of the browser's native IndexedDB, giving you the best of both worlds: performance and developer experience.
+Stop fighting with `localStorage` and `IndexedDB`'s raw API. CtroDB makes it easy to build complex, data-driven applications that feel incredibly fast and responsive.
 
 ---
 
+## Table of Contents
+
+- [Why CtroDB?](#why-ctrodb)
+- [Key Features](#-key-features)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Core Concepts](#-core-concepts)
+  - [1. The Schema](#1-the-schema)
+  - [2. The Database](#2-the-database)
+  - [3. Collections & Models](#3-collections--models)
+  - [4. Queries](#4-queries)
+  - [5. Reactivity with `observe()`](#5-reactivity-with-observe)
+- [Advanced Usage](#-advanced-usage)
+  - [Relational Queries](#relational-queries)
+  - [Complex `OR` Queries](#complex-or-queries)
+  - [Debugging](#debugging)
+- [Contributing](#-contributing)
+- [License](#️-license)
+
+---
+
+## Why CtroDB?
+
+| Problem with Traditional Tools | How CtroDB Solves It |
+| :--- | :--- |
+| **`localStorage` is slow & blocking.** | CtroDB is fully asynchronous and non-blocking, ensuring a smooth UI. |
+| **`IndexedDB` API is complex & verbose.** | CtroDB provides a clean, modern, and chainable API that is a joy to use. |
+| **Managing data relationships is hard.** | CtroDB has built-in support for `has_many` and `belongs_to` relations. |
+| **Keeping UI in sync with data is messy.** | The `.observe()` method provides effortless, fine-grained reactivity out of the box. |
+| **No clear structure or schema.** | CtroDB is schema-driven, ensuring data consistency and enabling migrations. |
+
 ## ✨ Key Features
 
-*   **🚀 Super Fast:** Built to be highly performant, using indexed queries and key ranges to retrieve data in milliseconds, even with large datasets.
-*   **💧 Reactive and Live:** Use the `.observe()` method on any query to get live updates in your UI. When the underlying data changes, your interface reacts automatically.
-*   **🔗 Model Relations:** Define relationships between your data collections (e.g., `has_many`, `belongs_to`) and effortlessly navigate your data graph.
-*   **🛠️ Clean, Modern API:** A fluent, intuitive API that makes working with a client-side database a joy. Features expressive queries like `.where('field', '>', value)` and `.orWhere(...)`.
-*   **🪶 Zero Dependencies:** Written in plain, modern JavaScript with no external libraries, making it lightweight and transparent.
-*   **🐛 Built-in Debugging:** Features a configurable, level-based logger to help you diagnose issues and understand the data flow in your application.
-*   **🗄️ Schema-Driven:** Define a clear schema for your data to ensure consistency and enable powerful, automated database migrations.
+*   **🚀 Super Fast:** Built to be highly performant, using indexed queries and key ranges to retrieve data in milliseconds.
+*   **💧 Reactive and Live:** Use `.observe()` on any query to get live updates in your UI.
+*   **🔗 Model Relations:** Define `has_many` and `belongs_to` relationships between your data collections.
+*   **🛠️ Clean, Modern API:** A fluent, intuitive API with expressive queries like `.where('field', '>', value)` and `.orWhere(...)`.
+*   **🪶 Zero Dependencies:** Written in plain, modern JavaScript, making it lightweight, transparent, and secure.
+*   **🐛 Built-in Debugging:** A configurable, level-based logger to help you diagnose issues and understand data flow.
+*   **🗄️ Schema-Driven:** Define a clear schema for your data to ensure consistency and enable powerful, automated migrations.
 
-## 📖 Installation & Usage
+## 📦 Installation
 
-Install the package from NPM:
+Install the package from NPM using your favorite package manager:
+
 ```bash
 npm install ctrodb
 ```
+```bash
+yarn add ctrodb
+```
+```bash
+pnpm add ctrodb
+```
 
-### Step 1: Define Your Schema
+## 🚀 Quick Start
 
-First, create a `Schema` to define the structure of your database.
+Get up and running in 5 minutes.
 
 ```javascript
-import { Database, Schema } from 'ctrodb';
+import { Database, Schema, LogLevel } from 'ctrodb';
 
+// 1. Define your schema
 const mySchema = new Schema({
   version: 1,
   collections: {
     posts: {
-      fields: {
-        title: 'string',
-        rating: 'number',
-        isPublished: 'boolean',
-      },
-      indexes: ['isPublished', 'rating'], // Index for faster queries
+      fields: { title: 'string', rating: 'number' },
+      indexes: ['rating'],
     },
-    comments: {
-      fields: {
-        text: 'string',
-        postId: 'number', // Foreign key for the relation
-      },
-      indexes: ['postId'],
-      relations: {
-        post: { type: 'belongs_to', collection: 'posts', foreignKey: 'postId' }
-      }
-    }
+  },
+});
+
+// 2. Initialize and connect to the database
+const db = new Database({
+  schema: mySchema,
+  dbName: 'MyWebAppDB',
+  logLevel: LogLevel.INFO, // Set to DEBUG for more verbosity
+});
+await db.connect();
+
+// 3. Get a collection and create a record
+const posts = db.getCollection('posts');
+await posts.create({ title: 'Hello CtroDB!', rating: 5 });
+
+// 4. Query your data
+const topPosts = await posts.query()
+  .where('rating', '>=', 5)
+  .fetch();
+
+console.log(topPosts.title); // "Hello CtroDB!"
+```
+
+## 🧠 Core Concepts
+
+### 1. The Schema
+
+The `Schema` is the blueprint for your database. It defines the version, the collections (tables), and the fields, indexes, and relations within them. A well-defined schema is the key to a robust application.
+
+```javascript
+const blogSchema = new Schema({
+  version: 1, // Increment this to trigger migrations
+  collections: {
+    posts: {
+      fields: { title: 'string', content: 'string' },
+      indexes: ['title'], // For fast lookups on the 'title' field
+    },
+    // ... other collections
   },
 });
 ```
 
-### Step 2: Initialize the Database
+### 2. The Database
 
-Create a new `Database` instance with your schema.
+The `Database` class is the main entry point to CtroDB. You instantiate it with your schema and a database name. You must call `.connect()` before performing any operations.
+
+```javascript
+const db = new Database({ schema: blogSchema, dbName: 'MyBlog' });
+await db.connect();
+```
+
+### 3. Collections & Models
+
+You interact with your data through `Collection` objects. When you fetch data, you get back `Model` instances, which are "live" objects that hold your data and have useful methods like `.update()` and `.delete()`.
+
+```javascript
+const postsCollection = db.getCollection('posts');
+
+// .create() returns a Model instance
+const myPost = await postsCollection.create({ title: 'My First Post' });
+
+// You can call methods directly on the model
+await myPost.update({ content: 'This is the updated content.' });
+await myPost.delete();
+```
+
+### 4. Queries
+
+The `Query` builder provides a clean, chainable API to find your data. Queries are lazily executed when you call `.fetch()` or `.first()`.
+
+```javascript
+// Simple equality query
+const drafts = await posts.query().where('isPublished', false).fetch();
+
+// Advanced range query
+const recentPosts = await posts.query().where('publishedAt', '>', 1672531200000).fetch();
+```
+
+### 5. Reactivity with `observe()`
+
+This is the magic of CtroDB. The `.observe()` method runs your query and gives you the results, then automatically re-runs the query and gives you the new results whenever any data that could affect the query is changed.
+
+```javascript
+const postsListElement = document.getElementById('posts-list');
+
+posts.query().observe(allPosts => {
+  // This callback runs immediately, and then again on any change.
+  // It's perfect for rendering UI with frameworks like React, Vue, or Svelte.
+  ui.renderPosts(allPosts);
+});
+```
+
+## 💡 Advanced Usage
+
+### Relational Queries
+
+Define relations in your schema, and CtroDB will automatically provide convenient getters on your models.
+
+```javascript
+// In your Schema:
+// ... comments collection
+relations: {
+  post: { type: 'belongs_to', collection: 'posts', foreignKey: 'postId' }
+}
+
+// In your application code:
+const comment = await db.getCollection('comments').find(1);
+const parentPostQuery = comment.post; // This is a Query object!
+const parentPost = await parentPostQuery.first();
+
+console.log(`Comment belongs to post: ${parentPost.title}`);
+```
+
+### Complex `OR` Queries
+
+Use the `.orWhere()` method to build complex, compound queries.
+
+```javascript
+// Find posts that are featured OR have a rating greater than 4
+const postsToShow = await posts.query()
+  .where('isFeatured', true)
+  .orWhere(q => q.where('rating', '>', 4))
+  .fetch();
+```
+
+### Debugging
+
+CtroDB has a built-in logger. To see detailed logs of every operation, set the `logLevel` during database initialization.
 
 ```javascript
 import { LogLevel } from 'ctrodb';
 
 const db = new Database({
-  schema: mySchema,
-  dbName: 'MyWebAppDB',
-  logLevel: LogLevel.INFO, // Or LogLevel.DEBUG for more verbosity
-});
-
-// You must connect before using the database
-await db.connect();
-```
-
-### Step 3: Perform Operations
-
-Get a reference to a collection and start performing CRUD (Create, Read, Update, Delete) operations.
-
-```javascript
-const postsCollection = db.getCollection('posts');
-
-// Create a new post
-const newPost = await postsCollection.create({
-  title: 'Hello CtroDB!',
-  rating: 5,
-  isPublished: true,
-});
-
-// Update a post
-await newPost.update({ rating: 6 });
-```
-
-### Step 4: Query Your Data
-
-Use the powerful query builder to find the data you need.
-
-```javascript
-// Find all highly-rated posts
-const topPosts = await postsCollection.query()
-  .where('rating', '>=', 5)
-  .fetch();
-
-// Find posts that are new OR are highly rated
-const postsToShow = await postsCollection.query()
-  .where('status', '==', 'new')
-  .orWhere(q => q.where('rating', '>', 4))
-  .fetch();
-```
-
-### Step 5: Use Reactivity to Build Live UIs
-
-Use `.observe()` to create a live subscription to your query.
-
-```javascript
-const postsListElement = document.getElementById('posts-list');
-
-// Observe the query for all posts
-postsCollection.query().observe(allPosts => {
-  // This callback will run immediately, and then again
-  // every time a post is created, updated, or deleted.
-  postsListElement.innerHTML = '';
-  allPosts.forEach(post => {
-    const li = document.createElement('li');
-    li.textContent = `${post.title} (Rating: ${post.rating})`;
-    postsListElement.appendChild(li);
-  });
+  // ...
+  logLevel: LogLevel.DEBUG, // See everything!
 });
 ```
 
-## API Reference
+## 🤝 Contributing
 
-(API Reference section remains the same as before, detailing `Schema`, `Database`, `collection.query()`, and `model` methods.)
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/ctrotech-tutor/ctrodb/issues).
 
 ## ⚖️ License
 
-This project is licensed under the **MIT License**.
+Copyright © 2025 Ctrotech.
+This project is [MIT](https://opensource.org/licenses/MIT) licensed.
