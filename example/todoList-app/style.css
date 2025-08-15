@@ -1,0 +1,134 @@
+
+/* hydrodb/examples/todolist-app/style.css */
+
+/*
+ * Base styles for filter buttons to complement Tailwind classes.
+ */
+.filter-btn {
+  padding: 4px 12px;
+  border-radius: 9999px; /* pill shape */
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+}
+
+/*
+ * Style for the currently active filter button.
+ * We'll toggle this class with JavaScript.
+ */
+.filter-btn.active {
+  background-color: #7c3aed; /* bg-violet-600 */
+  color: #ffffff; /* text-white */
+}
+
+/*
+ * Hover state for non-active filter buttons.
+ */
+.filter-btn:not(.active):hover {
+  background-color: #334155; /* bg-slate-700 */
+}
+
+/*
+ * Styles for a single todo item.
+ */
+.todo-item {
+  /* We will add animation names here via JavaScript to trigger them. */
+  display: flex;
+  align-items: center;
+  padding: 1rem; /* px-4 py-4 */
+  border-bottom: 1px solid #334155; /* border-slate-700 */
+  transition: background-color 0.2s ease-in-out;
+}
+
+.todo-item:hover {
+  background-color: #1e293b; /* bg-slate-800 */
+}
+
+/*
+ * Styles for the text part of a todo item.
+ */
+.todo-text {
+  flex-grow: 1;
+  margin-left: 0.75rem; /* ml-3 */
+  transition: color 0.3s ease, text-decoration 0.3s ease;
+  cursor: pointer;
+}
+
+/*
+ * Styles for a completed todo item's text.
+ * We'll toggle this class with JavaScript.
+ */
+.todo-text.completed {
+  color: #64748b; /* text-slate-500 */
+  text-decoration: line-through;
+}
+
+/*
+ * Styles for the delete button. It's hidden by default.
+ */
+.delete-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  cursor: pointer;
+  color: #475569; /* text-slate-600 */
+}
+
+/*
+ * The delete button becomes visible when hovering over the parent todo item.
+ */
+.todo-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  color: #ef4444; /* text-red-500 */
+}
+
+
+/*
+ * ========================================
+ *  Entry and Exit Animations for Todo Items
+ * ========================================
+ */
+
+/* Keyframes for the "add" animation */
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Keyframes for the "remove" animation */
+@keyframes fadeOutUp {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+    max-height: 58px; /* The typical height of a todo item */
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    border-width: 0;
+  }
+}
+
+/*
+ * Animation classes we will add and remove with JavaScript.
+ */
+.animate-add {
+  animation: fadeInDown 0.3s ease-out forwards;
+}
+
+.animate-remove {
+  animation: fadeOutUp 0.3s ease-out forwards;
+}
+
