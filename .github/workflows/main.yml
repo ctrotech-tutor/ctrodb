@@ -1,0 +1,46 @@
+# .github/workflows/main.yml
+
+# The name of our workflow, which will be displayed on the GitHub Actions tab.
+name: CtroDB CI/CD
+
+# Controls when the workflow will run.
+on:
+  # Triggers the workflow on push events but only for the "main" branch.
+  push:
+    branches: [ "main" ]
+  # Triggers the workflow on pull request events to the "main" branch.
+  pull_request:
+    branches: [ "main" ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+jobs:
+  # This workflow contains a single job called "build-and-test".
+  build-and-test:
+    # The type of runner that the job will run on.
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job.
+    steps:
+      # Step 1: Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Sets up a specific version of Node.js.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Use a recent Long-Term Support (LTS) version of Node.js
+          cache: 'npm' # Cache npm dependencies for faster runs
+
+      # Step 3: Installs the project dependencies.
+      - name: Install dependencies
+        run: npm install
+
+      # Step 4: Runs the build script to ensure the library bundles correctly.
+      - name: Build the project
+        run: npm run build
+
+      # Step 5: Runs the test suite. (We need to configure this script in package.json)
+      # For now, this will just echo a message. We'll update it next.
+      - name: Run tests
+        run: npm test
