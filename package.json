@@ -1,6 +1,6 @@
 {
   "name": "ctrodb",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A modern, high-performance, and reactive client-side database from Ctrotech. Built with zero dependencies and based on Ctrotech Tutor insights, focusing on speed, a clean API, and a powerful, live query system.",
   "main": "dist/ctrodb.cjs.js",
   "module": "dist/ctrodb.esm.js",
