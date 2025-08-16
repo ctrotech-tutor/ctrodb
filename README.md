@@ -113,23 +113,133 @@ For simple projects or environments without a build step, you can use the UMD bu
 
 ```html
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>CtroDB UMD Example</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CtroDB - UMD Example</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 2rem auto; background-color: #f9fafb; }
+    .container { background-color: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    h1 { color: #1a202c; }
+    input[type="text"] { width: 70%; padding: 0.75rem; border: 1px solid #cbd5e0; border-radius: 4px; font-size: 1rem; }
+    button { padding: 0.75rem 1rem; border: none; border-radius: 4px; color: #fff; background-color: #4299e1; cursor: pointer; font-size: 1rem; margin-left: 0.5rem; }
+    button:hover { background-color: #2b6cb0; }
+    ul { list-style: none; padding: 0; margin-top: 1.5rem; }
+    li { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background-color: #edf2f7; border-radius: 4px; margin-bottom: 0.5rem; }
+    li.completed span { text-decoration: line-through; color: #a0aec0; }
+    li button { background-color: #e53e3e; font-size: 0.8rem; padding: 0.25rem 0.5rem; }
+    li button:hover { background-color: #c53030; }
+  </style>
 </head>
 <body>
+
+  <div class="container">
+    <h1>My Todo List (Powered by CtroDB)</h1>
+    <div>
+      <input type="text" id="todo-input" placeholder="What needs to be done?">
+      <button id="add-todo-btn">Add</button>
+    </div>
+    <ul id="todo-list"></ul>
+  </div>
+
+  <!-- 1. Load the CtroDB library from a CDN -->
   <script src="https://unpkg.com/ctrodb/dist/ctrodb.umd.js"></script>
+
   <script>
-    // CtroDB is now available as a global variable!
-    const { Database, Schema } = window.CtroDB;
-    const db = new Database({
-      schema: new Schema({ version: 1, collections: { users: { fields: { name: 'string' } } } }),
-      dbName: 'BrowserDB'
+    // 2. CtroDB is now available as a global variable!
+    const { Database, Schema, LogLevel } = window.CtroDB;
+
+    // UI Elements
+    const todoInput = document.getElementById('todo-input');
+    const addTodoBtn = document.getElementById('add-todo-btn');
+    const todoList = document.getElementById('todo-list');
+
+    // 3. Define the schema for our 'todos' collection
+    const todoSchema = new Schema({
+      version: 1,
+      collections: {
+        todos: {
+          fields: {
+            text: 'string',
+            completed: 'boolean',
+            createdAt: 'number'
+          },
+          indexes: ['createdAt'] // Index for sorting
+        }
+      }
     });
-    // ... use db as normal
+
+    // 4. Initialize the database
+    const db = new Database({
+      schema: todoSchema,
+      dbName: 'DetailedExampleDB',
+      logLevel: LogLevel.NONE // Set to INFO or DEBUG to see logs
+    });
+
+    // Main application logic
+    async function main() {
+      await db.connect();
+      const todos = db.getCollection('todos');
+
+      // 5. This is the core of the app: A REACTIVE RENDERER
+      // We observe the entire collection, sorted by creation time.
+      // This function will run automatically whenever the data changes.
+      todos.query().observe(allTodos => {
+        const sortedTodos = allTodos.sort((a, b) => a.createdAt - b.createdAt);
+        
+        todoList.innerHTML = ''; // Clear the current list
+        
+        sortedTodos.forEach(todo => {
+          const li = document.createElement('li');
+          li.className = todo.completed ? 'completed' : '';
+          
+          const span = document.createElement('span');
+          span.textContent = todo.text;
+          // Click the text to toggle completion status
+          span.style.cursor = 'pointer';
+          span.onclick = () => todo.update({ completed: !todo.completed });
+          
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          // Click the button to delete the todo
+          deleteBtn.onclick = () => todo.delete();
+          
+          li.appendChild(span);
+          li.appendChild(deleteBtn);
+          todoList.appendChild(li);
+        });
+      });
+
+      // 6. Handle adding new todos
+      const addTodo = async () => {
+        const text = todoInput.value.trim();
+        if (text) {
+          await todos.create({
+            text: text,
+            completed: false,
+            createdAt: Date.now()
+          });
+          todoInput.value = ''; // Clear the input
+          todoInput.focus();
+        }
+      };
+
+      addTodoBtn.onclick = addTodo;
+      todoInput.onkeyup = (event) => {
+        if (event.key === 'Enter') {
+          addTodo();
+        }
+      };
+    }
+
+    // Run the application
+    main();
   </script>
+
 </body>
 </html>
+
 ```
 
 ## 🧠 Core Concepts
