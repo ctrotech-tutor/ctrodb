@@ -106,9 +106,9 @@ const topPosts = await db.getCollection('posts').query()
 
 ### 2. Using in the Browser with `<script>`
 
-For simple projects, prototypes, or environments without a build step, you can use the UMD (Universal Module Definition) build.
+For simple projects or environments without a build step, you can use the UMD build.
 
-1.  Download the latest `ctrodb.umd.js` file from the [Releases page](https://github.com/ctrotech-tutor/ctrodb/releases) on GitHub or from a CDN like [unpkg](https://unpkg.com/ctrodb/dist/ctrodb.umd.js).
+1.  Download the latest `ctrodb.umd.js` file from the [Releases page](https://github.com/ctrotech-tutor/ctrodb/releases) on GitHub or use a CDN like [unpkg](https://unpkg.com/ctrodb/dist/ctrodb.umd.js).
 2.  Include it in your HTML file.
 
 ```html
@@ -118,31 +118,15 @@ For simple projects, prototypes, or environments without a build step, you can u
   <title>CtroDB UMD Example</title>
 </head>
 <body>
-  <h1>My App</h1>
-
-  <!-- Load the CtroDB library -->
   <script src="https://unpkg.com/ctrodb/dist/ctrodb.umd.js"></script>
-
   <script>
     // CtroDB is now available as a global variable!
     const { Database, Schema } = window.CtroDB;
-
-    const mySchema = new Schema({
-      version: 1,
-      collections: { users: { fields: { name: 'string' } } }
+    const db = new Database({
+      schema: new Schema({ version: 1, collections: { users: { fields: { name: 'string' } } } }),
+      dbName: 'BrowserDB'
     });
-
-    const db = new Database({ schema: mySchema, dbName: 'BrowserDB' });
-
-    async function runApp() {
-      await db.connect();
-      const users = db.getCollection('users');
-      await users.create({ name: 'Alice' });
-      const allUsers = await users.query().fetch();
-      console.log(allUsers);
-    }
-
-    runApp();
+    // ... use db as normal
   </script>
 </body>
 </html>
@@ -150,35 +134,109 @@ For simple projects, prototypes, or environments without a build step, you can u
 
 ## 🧠 Core Concepts
 
-(This section remains the same, detailing Schema, Database, Collections, Queries, and Reactivity.)
-
 ### The Schema
-The `Schema` is the blueprint for your database...
+The `Schema` is the blueprint for your database. It defines the version, the collections (tables), and the fields, indexes, and relations within them. A well-defined schema is the key to a robust application. Incrementing the `version` number is how you trigger database migrations.
+
+```javascript
+const blogSchema = new Schema({
+  version: 1,
+  collections: {
+    posts: {
+      fields: { title: 'string', content: 'string', publishedAt: 'number' },
+      indexes: ['publishedAt'], // For fast lookups on the 'publishedAt' field
+    },
+  },
+});
+```
 
 ### The Database
-The `Database` class is the main entry point to CtroDB...
+The `Database` class is the main entry point to CtroDB. You instantiate it with your schema and a database name. You must call `.connect()` before performing any operations. It is the central hub that manages collections, the adapter, and the event emitter.
+
+```javascript
+const db = new Database({ schema: blogSchema, dbName: 'MyBlog' });
+await db.connect();
+```
 
 ### Collections & Models
-You interact with your data through `Collection` objects...
+You interact with your data through `Collection` objects, which you get from the database instance. When you fetch data, you get back `Model` instances. These are "live" objects that hold your record's data and have useful methods like `.update()` and `.delete()`, allowing for an object-oriented way to manage your data.
+
+```javascript
+const postsCollection = db.getCollection('posts');
+
+// .create() returns a Model instance
+const myPost = await postsCollection.create({ title: 'My First Post' });
+
+// You can call methods directly on the model
+await myPost.update({ content: 'This is the updated content.' });
+await myPost.delete();
+```
 
 ### Queries
-The `Query` builder provides a clean, chainable API...
+The `Query` builder provides a clean, chainable API to find your data. Queries are lazily executed, meaning the database is only hit when you call a terminal method like `.fetch()` or `.first()`. This allows you to build up complex queries step-by-step.
+
+```javascript
+// Simple equality query
+const drafts = await posts.query().where('isPublished', false).fetch();
+
+// Advanced range query
+const recentPosts = await posts.query().where('publishedAt', '>', 1672531200000).fetch();
+```
 
 ### Reactivity with `observe()`
-This is the magic of CtroDB...
+This is the magic of CtroDB. The `.observe()` method runs your query and gives you the results, then automatically re-runs the query and gives you the new results whenever any data that could affect the query is changed. This makes building reactive user interfaces incredibly simple.
+
+```javascript
+const postsListElement = document.getElementById('posts-list');
+
+posts.query().observe(allPosts => {
+  // This callback runs immediately, and then again on any change.
+  // It's perfect for rendering UI with frameworks like React, Vue, or Svelte.
+  ui.renderPosts(allPosts);
+});
+```
 
 ## 💡 Advanced Usage
 
-(This section remains the same, detailing Relations, OR Queries, and Debugging.)
-
 ### Relational Queries
-Define relations in your schema...
+Define relations in your schema, and CtroDB will automatically provide convenient getters on your models that return pre-configured queries for the related data.
+
+```javascript
+// In your Schema, a comment 'belongs_to' a post:
+// ... comments collection
+relations: {
+  post: { type: 'belongs_to', collection: 'posts', foreignKey: 'postId' }
+}
+
+// In your application code:
+const comment = await db.getCollection('comments').find(1);
+const parentPostQuery = comment.post; // This is a Query object!
+const parentPost = await parentPostQuery.first();
+
+console.log(`Comment belongs to post: ${parentPost.title}`);
+```
 
 ### Complex `OR` Queries
-Use the `.orWhere()` method to build complex, compound queries...
+Use the `.orWhere()` method to build complex, compound queries. It accepts a function to prevent ambiguity and allow for clear, nested logic.
+
+```javascript
+// Find posts that are featured OR have a rating greater than 4
+const postsToShow = await posts.query()
+  .where('isFeatured', true)
+  .orWhere(q => q.where('rating', '>', 4))
+  .fetch();
+```
 
 ### Debugging
-CtroDB has a built-in logger...
+CtroDB has a built-in, level-based logger. To see detailed logs of every operation, set the `logLevel` during database initialization. This is invaluable for development and troubleshooting.
+
+```javascript
+import { LogLevel } from 'ctrodb';
+
+const db = new Database({
+  // ...
+  logLevel: LogLevel.DEBUG, // See everything! From connection to query execution.
+});
+```
 
 ## 🤝 Contributing
 
