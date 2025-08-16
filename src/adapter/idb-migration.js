@@ -1,38 +1,43 @@
 // hydrodb/src/adapter/idb-migration.js
 
 /**
- * Creates a handler function for the IndexedDB 'upgradeneeded' event.
- * This function is responsible for creating and updating the database schema (Object Stores and Indexes)
- * based on the provided HydroDB Schema object.
+ * The internal name for our Full-Text Search (FTS) index collection.
+ * Using a constant ensures consistency and prevents magic strings.
+ * @private
+ * @type {string}
+ */
+const FTS_INDEX_COLLECTION = '_ctro_fts_index';
+
+/**
+ * Creates a handler function for the IndexedDB 'upgradeneeden' event.
+ * This function is responsible for creating and updating the database schema,
+ * including user-defined collections and the internal FTS index.
  *
- * @param {import('../core/Schema').Schema} schema - The HydroDB Schema instance that defines the database structure.
+ * @param {import('../core/Schema').Schema} schema - The CtroDB Schema instance.
  * @param {import('../core/Logger.js').Logger} logger - The logger instance.
- * @returns {function(IDBVersionChangeEvent): void} A function designed to be used as the onupgradeneeded callback.
+ * @returns {function(IDBVersionChangeEvent): void} The onupgradeneeded callback.
  */
 export function createMigrationHandler(schema, logger) {
   /**
-   * @param {IDBVersionChangeEvent} event - The event object provided by IndexedDB during a version change.
+   * @param {IDBVersionChangeEvent} event - The event object provided by IndexedDB.
    */
   return function handleUpgrade(event) {
     const db = event.target.result;
     logger.info('Migration', `Upgrading database to version ${db.version}...`);
 
+    let hasSearchableFields = false;
+
+    // First, create all the user-defined collections and their indexes.
     for (const collectionName in schema.collections) {
       const collectionSchema = schema.collections[collectionName];
 
-      // Check if the Object Store (table) already exists.
       if (!db.objectStoreNames.contains(collectionName)) {
-        // Create the Object Store. We use 'id' as the keyPath by default.
-        // autoIncrement: true ensures that IndexedDB handles unique ID generation for us.
         const objectStore = db.createObjectStore(collectionName, { keyPath: 'id', autoIncrement: true });
         logger.debug('Migration', `Created object store: ${collectionName}`);
 
-        // Create indexes for the fields specified in the schema.
         if (collectionSchema.indexes && Array.isArray(collectionSchema.indexes)) {
           collectionSchema.indexes.forEach(indexName => {
-            // Ensure the field actually exists before creating an index for it.
             if (collectionSchema.fields[indexName]) {
-              // The third argument, options, can specify if the index is unique.
               objectStore.createIndex(indexName, indexName, { unique: false });
               logger.debug('Migration', `Created index '${indexName}' on object store '${collectionName}'`);
             } else {
@@ -41,12 +46,24 @@ export function createMigrationHandler(schema, logger) {
           });
         }
       } else {
-        // In a more advanced implementation, this is where you would handle
-        // migrating existing object stores, e.g., adding/removing indexes
-        // based on the oldVersion and newVersion from the event object.
-        // For now, we only handle creation.
         logger.debug('Migration', `Object store '${collectionName}' already exists.`);
       }
+
+      // Check if this collection has any searchable fields.
+      if (collectionSchema.searchable && Array.isArray(collectionSchema.searchable) && collectionSchema.searchable.length > 0) {
+        hasSearchableFields = true;
+      }
+    }
+
+    // --- Internal FTS Index Creation ---
+    // After setting up user collections, check if we need to create our internal FTS index.
+    if (hasSearchableFields && !db.objectStoreNames.contains(FTS_INDEX_COLLECTION)) {
+      logger.info('Migration', 'Searchable fields detected. Creating internal Full-Text Search index.');
+      
+      // The FTS index stores tokens as keys. The keyPath is 'token'.
+      // We do NOT use autoIncrement here because the token itself is the unique key.
+      db.createObjectStore(FTS_INDEX_COLLECTION, { keyPath: 'token' });
+      logger.debug('Migration', `Created internal object store: ${FTS_INDEX_COLLECTION}`);
     }
   };
 }

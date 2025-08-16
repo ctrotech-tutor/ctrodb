@@ -1,16 +1,19 @@
 {
   "name": "ctrodb",
-  "version": "1.1.0",
-  "description": "A modern, high-performance, and reactive client-side database from Ctrotech. Built with zero dependencies and based on Ctrotech Tutor insights, focusing on speed, a clean API, and a powerful, live query system.",
+  "version": "2.0.0",
+  "description": "A modern, high-performance, and reactive client-side database from Ctrotech. Built with zero dependencies and based on Ctrotech Tutor insights, focusing on speed, a clean API, and a powerful, live query system with full-text search.",
   "main": "dist/ctrodb.cjs.js",
   "module": "dist/ctrodb.esm.js",
+  "browser": "dist/ctrodb.umd.js",
   "type": "module",
   "files": [
     "dist",
-    "src"
+    "src",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "test": "echo \"Tests will be configured later, passing for now.\" && exit 0",
+    "test": "jest",
     "build": "rollup -c"
   },
   "keywords": [
@@ -21,7 +24,8 @@
     "reactive",
     "client-side",
     "offline-first",
-    "javascript"
+    "javascript",
+    "full-text-search"
   ],
   "author": "Ctrotech",
   "license": "MIT",
@@ -35,10 +39,8 @@
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.1",
+    "jest": "^30.0.5",
     "rollup": "^2.79.2",
     "rollup-plugin-terser": "^7.0.2"
-  },
-  "dependencies": {
-    "ctrodb": "^1.0.0"
   }
 }

@@ -11,6 +11,12 @@ import {
   updateRecord,
   deleteRecord
 } from './idb-crud.js';
+import { tokenize } from '../utils/tokenizer.js';
+
+// --- Constants ---
+const FTS_INDEX_COLLECTION = '_ctro_fts_index';
+
+// --- Private Helper Functions ---
 
 function createKeyRange(condition) {
   const { op, value } = condition;
@@ -24,7 +30,9 @@ function createKeyRange(condition) {
 }
 
 function recordMatches(record, conditions) {
+  // This now only needs to handle 'where' conditions, as 'search' is handled separately.
   return conditions.every(condition => {
+    if (condition.type !== 'where') return true;
     const { field, op, value } = condition;
     const recordValue = record[field];
     switch (op) {
@@ -39,6 +47,8 @@ function recordMatches(record, conditions) {
   });
 }
 
+// --- The Adapter Class ---
+
 export class IndexedDBAdapter {
   schema;
   #logger;
@@ -46,7 +56,7 @@ export class IndexedDBAdapter {
   #dbName;
   #emitter = null;
 
-  constructor(schema, logger, dbName = 'HydroDB') {
+  constructor(schema, logger, dbName = 'CtroDB') {
     if (!schema) throw new Error('IndexedDBAdapter requires a schema.');
     if (!logger) throw new Error('IndexedDBAdapter requires a logger.');
     
@@ -88,87 +98,161 @@ export class IndexedDBAdapter {
     }
   }
 
-  // --- CRUD Methods ---
+  // --- FTS Indexing Helper Methods ---
+
+  #getTokensFromRecord(collectionName, record) {
+    const collectionSchema = this.schema.collections[collectionName];
+    const searchableFields = collectionSchema.searchable || [];
+    if (searchableFields.length === 0) {
+      return new Set();
+    }
+    const allTokens = new Set();
+    for (const field of searchableFields) {
+      const text = record[field];
+      const tokens = tokenize(text);
+      for (const token of tokens) {
+        allTokens.add(token);
+      }
+    }
+    return allTokens;
+  }
+
+  async #updateFtsIndex(collectionName, docId, oldRecord, newRecord) {
+    this.#ensureConnected();
+    const oldTokens = oldRecord ? this.#getTokensFromRecord(collectionName, oldRecord) : new Set();
+    const newTokens = newRecord ? this.#getTokensFromRecord(collectionName, newRecord) : new Set();
+    const tokensToAdd = new Set([...newTokens].filter(token => !oldTokens.has(token)));
+    const tokensToRemove = new Set([...oldTokens].filter(token => !newTokens.has(token)));
+    if (tokensToAdd.size === 0 && tokensToRemove.size === 0) return;
+
+    this.#logger.debug('Adapter-FTS', `Updating FTS index for docId ${docId}.`, { tokensToAdd, tokensToRemove });
+    const tx = this.#db.transaction(FTS_INDEX_COLLECTION, 'readwrite');
+    const ftsStore = tx.objectStore(FTS_INDEX_COLLECTION);
+
+    for (const token of tokensToAdd) {
+      const req = ftsStore.get(token);
+      const indexRecord = await new Promise(resolve => req.onsuccess = () => resolve(req.result));
+      if (indexRecord) {
+        indexRecord.docs.push(docId);
+        ftsStore.put(indexRecord);
+      } else {
+        ftsStore.put({ token, docs: [docId] });
+      }
+    }
+
+    for (const token of tokensToRemove) {
+      const req = ftsStore.get(token);
+      const indexRecord = await new Promise(resolve => req.onsuccess = () => resolve(req.result));
+      if (indexRecord) {
+        indexRecord.docs = indexRecord.docs.filter(id => id !== docId);
+        if (indexRecord.docs.length > 0) {
+          ftsStore.put(indexRecord);
+        } else {
+          ftsStore.delete(token);
+        }
+      }
+    }
+
+    await new Promise(resolve => tx.oncomplete = resolve);
+    this.#logger.debug('Adapter-FTS', `FTS index update complete for docId ${docId}.`);
+  }
+
+  // --- CRUD Methods (with FTS Hooks) ---
+
   async create(collectionName, data) {
     this.#ensureConnected();
     const newRecord = await createRecord(this.#db, collectionName, data, this.#logger);
+    await this.#updateFtsIndex(collectionName, newRecord.id, null, newRecord);
     this.#emitChange(collectionName, newRecord);
     return newRecord;
   }
+
+  async update(collectionName, id, data) {
+    this.#ensureConnected();
+    const oldRecord = await findRecord(this.#db, collectionName, id, this.#logger);
+    if (!oldRecord) throw new Error(`Cannot update non-existent record with id ${id}.`);
+    const updatedRecord = await updateRecord(this.#db, collectionName, id, data, this.#logger);
+    await this.#updateFtsIndex(collectionName, id, oldRecord, updatedRecord);
+    this.#emitChange(collectionName, updatedRecord);
+    return updatedRecord;
+  }
+
+  async delete(collectionName, id) {
+    this.#ensureConnected();
+    const recordToDelete = await findRecord(this.#db, collectionName, id, this.#logger);
+    if (recordToDelete) {
+      await deleteRecord(this.#db, collectionName, id, this.#logger);
+      await this.#updateFtsIndex(collectionName, id, recordToDelete, null);
+      this.#emitChange(collectionName, recordToDelete);
+    }
+  }
+
+  // --- Query Methods ---
+
   find(collectionName, id) {
     this.#ensureConnected();
     return findRecord(this.#db, collectionName, id, this.#logger);
   }
+
   findAll(collectionName) {
     this.#ensureConnected();
     return findAllRecords(this.#db, collectionName, this.#logger);
   }
-  async update(collectionName, id, data) {
-    this.#ensureConnected();
-    const updatedRecord = await updateRecord(this.#db, collectionName, id, data, this.#logger);
-    this.#emitChange(collectionName, updatedRecord);
-    return updatedRecord;
-  }
-  async delete(collectionName, id) {
-    this.#ensureConnected();
-    const recordToDelete = await findRecord(this.#db, collectionName, id, this.#logger);
-    await deleteRecord(this.#db, collectionName, id, this.#logger);
-    if (recordToDelete) this.#emitChange(collectionName, recordToDelete);
-  }
 
-  /**
-   * A private helper to execute a single group of AND conditions.
-   * @param {string} collectionName
-   * @param {Array<object>} conditions
-   * @returns {Promise<Array<object>>}
-   */
-  async #executeConditionGroup(collectionName, conditions) {
-    if (conditions.length === 0) {
-      return this.findAll(collectionName);
-    }
+  async #executeFtsSearch(searchCondition) {
+    this.#logger.debug('Adapter-FTS', `Executing FTS search for: "${searchCondition.value}"`);
+    const searchTokens = tokenize(searchCondition.value);
+    if (searchTokens.length === 0) return new Set();
 
-    const collectionSchema = this.schema.collections[collectionName];
-    const indexedCondition = conditions.find(c => collectionSchema.indexes?.includes(c.field));
+    const tx = this.#db.transaction(FTS_INDEX_COLLECTION, 'readonly');
+    const ftsStore = tx.objectStore(FTS_INDEX_COLLECTION);
+    let matchingDocIds = null;
 
-    if (indexedCondition) {
-      const { field, op, value } = indexedCondition;
-      let indexedResults;
-
-      if (op === '==') {
-        this.#logger.debug('Adapter', `Using index '${field}' with '==' operator.`);
-        indexedResults = await findRecordsByIndex(this.#db, collectionName, field, value, this.#logger);
+    for (const token of searchTokens) {
+      const req = ftsStore.get(token);
+      const indexRecord = await new Promise(resolve => req.onsuccess = () => resolve(req.result));
+      const idsForToken = new Set(indexRecord ? indexRecord.docs : []);
+      if (matchingDocIds === null) {
+        matchingDocIds = idsForToken;
       } else {
-        const keyRange = createKeyRange(indexedCondition);
-        if (keyRange) {
-          this.#logger.debug('Adapter', `Using index '${field}' with a key range operator ('${op}').`);
-          indexedResults = await findRecordsByKeyRange(this.#db, collectionName, field, keyRange, this.#logger);
-        } else {
-          // This case handles '!=' on an indexed field, which must be a full scan.
-          this.#logger.warn('Adapter', `Operator '${op}' cannot use an index. Falling back to full scan.`);
-          const allRecords = await this.findAll(collectionName);
-          return allRecords.filter(record => recordMatches(record, conditions));
-        }
+        matchingDocIds = new Set([...matchingDocIds].filter(id => idsForToken.has(id)));
       }
-      
-      const otherConditions = conditions.filter(c => c !== indexedCondition);
-      if (otherConditions.length > 0) {
-        this.#logger.debug('Adapter', 'Applying additional filtering to indexed results.');
-        return indexedResults.filter(record => recordMatches(record, otherConditions));
-      }
-      return indexedResults;
+      if (matchingDocIds.size === 0) break;
     }
-
-    this.#logger.warn('Adapter', `Executing non-indexed query for '${collectionName}'. This may be slow.`);
-    const allRecords = await this.findAll(collectionName);
-    return allRecords.filter(record => recordMatches(record, conditions));
+    
+    this.#logger.debug('Adapter-FTS', `FTS search found ${matchingDocIds?.size || 0} potential document IDs.`);
+    return matchingDocIds || new Set();
   }
 
-  /**
-   * Executes a query against the database. This is the main query execution engine.
-   * @param {string} collectionName - The name of the collection to query.
-   * @param {Array<Array<object>>} conditionGroups - The query conditions from the Query class.
-   * @returns {Promise<Array<object>>}
-   */
+  async #executeConditionGroup(collectionName, conditions) {
+    if (conditions.length === 0) return this.findAll(collectionName);
+
+    const searchConditions = conditions.filter(c => c.type === 'search');
+    const whereConditions = conditions.filter(c => c.type === 'where');
+    let initialRecordSet = null;
+
+    if (searchConditions.length > 0) {
+      const ftsDocIds = await this.#executeFtsSearch(searchConditions[0]);
+      if (ftsDocIds.size === 0) return [];
+
+      const tx = this.#db.transaction(collectionName, 'readonly');
+      const store = tx.objectStore(collectionName);
+      initialRecordSet = await Promise.all(
+        [...ftsDocIds].map(id => new Promise(resolve => {
+          const req = store.get(id);
+          req.onsuccess = () => resolve(req.result);
+        }))
+      );
+      initialRecordSet = initialRecordSet.filter(Boolean);
+    }
+
+    const recordsToFilter = initialRecordSet !== null ? initialRecordSet : await this.findAll(collectionName);
+    if (whereConditions.length === 0) return recordsToFilter;
+
+    this.#logger.debug('Adapter', `Applying 'where' filters to a set of ${recordsToFilter.length} records.`);
+    return recordsToFilter.filter(record => recordMatches(record, whereConditions));
+  }
+
   async executeQuery(collectionName, conditionGroups) {
     this.#ensureConnected();
     this.#logger.debug('Adapter', `Executing query for '${collectionName}'.`, conditionGroups);
@@ -176,21 +260,15 @@ export class IndexedDBAdapter {
     if (conditionGroups.length === 0 || (conditionGroups.length === 1 && conditionGroups[0].length === 0)) {
       return this.findAll(collectionName);
     }
-
-    // If there's only one group, execute it directly.
     if (conditionGroups.length === 1) {
       return this.#executeConditionGroup(collectionName, conditionGroups[0]);
     }
 
-    // --- OR Logic: Multiple Condition Groups ---
     this.#logger.debug('Adapter', `Executing OR query with ${conditionGroups.length} groups.`);
-    
-    // Execute all condition groups in parallel.
     const resultsFromGroups = await Promise.all(
       conditionGroups.map(group => this.#executeConditionGroup(collectionName, group))
     );
 
-    // Merge and de-duplicate the results.
     const resultMap = new Map();
     for (const groupResults of resultsFromGroups) {
       for (const record of groupResults) {

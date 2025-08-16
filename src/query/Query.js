@@ -18,8 +18,9 @@ export class Query {
    * It's an array of "condition groups". Each group is an array of conditions
    * that are joined by AND. The top-level groups are joined by OR.
    * e.g., [ [A, B], [C] ] represents (A AND B) OR (C)
+   * A condition can be a standard 'where' or a special 'search' type.
    * @private
-   * @type {Array<Array<{field: string, op: string, value: any}>>}
+   * @type {Array<Array<object>>}
    */
   #conditionGroups = [[]];
 
@@ -64,9 +65,35 @@ export class Query {
     }
 
     const lastGroup = this.#conditionGroups[this.#conditionGroups.length - 1];
-    lastGroup.push({ field, op, value: val });
+    // Add a 'type' to distinguish from search conditions
+    lastGroup.push({ type: 'where', field, op, value: val });
 
     this.#logger.debug('Query', `Added 'where' condition:`, { field, op, value: val });
+    return this;
+  }
+
+  /**
+   * Adds a full-text search condition to the current query group (AND).
+   * This will search for all words in the `searchQuery` within the specified field.
+   *
+   * @param {string} field - The searchable field to perform the search on.
+   * @param {string} searchQuery - The string of words to search for.
+   * @returns {Query} The Query instance for chaining.
+   */
+  search(field, searchQuery) {
+    if (typeof field !== 'string' || typeof searchQuery !== 'string') {
+      throw new Error('search() requires a field name and a search query string.');
+    }
+    if (searchQuery.trim() === '') {
+      this.#logger.warn('Query', 'search() called with an empty query string. This will be ignored.');
+      return this;
+    }
+
+    const lastGroup = this.#conditionGroups[this.#conditionGroups.length - 1];
+    // Add a special 'search' type condition
+    lastGroup.push({ type: 'search', field, value: searchQuery });
+
+    this.#logger.debug('Query', `Added 'search' condition:`, { field, searchQuery });
     return this;
   }
 
@@ -79,13 +106,9 @@ export class Query {
   orWhere(callback) {
     this.#logger.debug('Query', `Adding an 'orWhere' group.`);
     
-    // Create a new, temporary Query instance for the callback to use.
-    // This prevents the callback from affecting the main query's state directly.
     const orQuery = new Query(this.#collection, this.#database, this.#logger);
     callback(orQuery);
 
-    // Add the conditions from the temporary query as a new group to our main query.
-    // We only take the first group from the orQuery, as nested ORs are not supported in this design.
     const newGroup = orQuery.#conditionGroups[0];
     if (newGroup.length > 0) {
       this.#conditionGroups.push(newGroup);

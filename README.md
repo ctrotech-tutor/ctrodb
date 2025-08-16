@@ -26,6 +26,7 @@ Stop fighting with `localStorage` and `IndexedDB`'s raw API. CtroDB makes it eas
   - [Queries](#queries)
   - [Reactivity with `observe()`](#reactivity-with-observe)
 - [Advanced Usage](#-advanced-usage)
+  - [Full-Text Search](#full-text-search)
   - [Relational Queries](#relational-queries)
   - [Complex `OR` Queries](#complex-or-queries)
   - [Debugging](#debugging)
@@ -47,10 +48,11 @@ Stop fighting with `localStorage` and `IndexedDB`'s raw API. CtroDB makes it eas
 ## ✨ Key Features
 
 *   **🚀 Super Fast:** Built to be highly performant, using indexed queries and key ranges to retrieve data in milliseconds.
+*   **🔍 Full-Text Search:** Built-in search engine allows for fast, word-based searching inside text fields.
 *   **💧 Reactive and Live:** Use `.observe()` on any query to get live updates in your UI.
 *   **🔗 Model Relations:** Define `has_many` and `belongs_to` relationships between your data collections.
-*   **🛠️ Clean, Modern API:** A fluent, intuitive API with expressive queries like `.where('field', '>', value)` and `.orWhere(...)`.
-*   **📦 Multi-Environment Support:** Works seamlessly in Node.js, with modern bundlers (Vite, Webpack), and directly in the browser via a `<script>` tag.
+*   **🛠️ Clean, Modern API:** A fluent, intuitive API with expressive queries like `.where(...)`, `.orWhere(...)`, and `.search(...)`.
+*   **📦 Multi-Environment Support:** Works seamlessly in Node.js, with modern bundlers, and directly in the browser via a `<script>` tag.
 *   **🪶 Zero Dependencies:** Written in plain, modern JavaScript, making it lightweight, transparent, and secure.
 *   **🐛 Built-in Debugging:** A configurable, level-based logger to help you diagnose issues and understand data flow.
 
@@ -239,7 +241,6 @@ For simple projects or environments without a build step, you can use the UMD bu
 
 </body>
 </html>
-
 ```
 
 ## 🧠 Core Concepts
@@ -306,6 +307,50 @@ posts.query().observe(allPosts => {
 ```
 
 ## 💡 Advanced Usage
+
+### Full-Text Search
+
+CtroDB includes a powerful full-text search engine. To use it, you first need to specify which fields should be searchable in your schema.
+
+**Step 1: Enable Search in Your Schema**
+
+Add the `searchable` property to your collection definition. It should be an array of field names that you want to be able to search.
+
+```javascript
+const notesSchema = new Schema({
+  version: 1,
+  collections: {
+    notes: {
+      fields: {
+        title: 'string',
+        content: 'string', // The main body of the note
+        tags: 'string',    // e.g., "tech javascript database"
+      },
+      // Make the 'content' and 'tags' fields searchable
+      searchable: ['content', 'tags']
+    }
+  }
+});
+```
+
+**Step 2: Use the `.search()` Method**
+
+Once your schema is defined, you can use the `.search()` method in your queries. It will find all records where the specified field contains *all* of the words in your search query.
+
+```javascript
+const notes = db.getCollection('notes');
+
+// Find all notes that mention both "reactive" and "database" in their content
+const searchResults = await notes.query()
+  .search('content', 'reactive database')
+  .fetch();
+
+// You can also combine it with other clauses
+const importantNotes = await notes.query()
+  .search('tags', 'urgent')
+  .where('priority', '>', 3)
+  .fetch();
+```
 
 ### Relational Queries
 Define relations in your schema, and CtroDB will automatically provide convenient getters on your models that return pre-configured queries for the related data.
