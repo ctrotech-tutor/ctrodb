@@ -16,19 +16,26 @@ export default {
       // CommonJS (for Node.js and older bundlers)
       file: pkg.main,
       format: 'cjs',
-      sourcemap: true, // Generate source maps for easier debugging
+      sourcemap: true,
     },
     {
       // ES Module (for modern browsers and bundlers)
       file: pkg.module,
       format: 'esm',
       sourcemap: true,
+    },
+    {
+      // **NEW** UMD (Universal Module Definition) for browser <script> tag
+      file: 'dist/ctrodb.umd.js', // The path for the UMD file
+      format: 'umd',
+      name: 'CtroDB', // The global variable name to be created in the browser
+      sourcemap: true,
     }
   ],
 
   // The plugins we are using
   plugins: [
-    nodeResolve(), // Helps Rollup find modules
-    terser()       // Minifies the output code
+    nodeResolve(),
+    terser()
   ]
 };
