@@ -9,7 +9,9 @@ export {
   SchemaError,
   ValidationError,
 } from "./errors"
+export { Model } from "./model/index"
 export { Signal } from "./reactive/signal"
+export { Schema } from "./schema"
 export type {
   ChangeEvent,
   ChangeType,
