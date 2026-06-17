@@ -69,7 +69,7 @@
   },
   "homepage": "https://github.com/ctrotech-tutor/ctrodb#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "sideEffects": false,
   "devDependencies": {
