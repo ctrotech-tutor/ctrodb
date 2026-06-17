@@ -2,23 +2,22 @@
 
 All notable changes to ctrodb will be documented in this file.
 
-## [1.0.0-alpha.6] - 2026-06-17
+## [1.0.0] - 2026-06-17
 
 ### Added
 - React bindings: `useQuery`, `useDoc`, `useMutation`, `DatabaseProvider`, `useDatabase`
 - Multi-entry build: `ctrodb/react` subpath export (ESM + CJS + types)
 - CDN/IIFE verification — 25.4 KB minified global build
+- FTS Plugin: tokenizer, inverted index, lifecycle hooks for index maintenance
+- Relations Plugin: RelationsEngine with eager loading (belongs_to, has_many, has_one)
+- Validation Plugin: ValidationEngine with custom rules, built-in email/URL/empty-string validators
 
 ### Changed
+- Bumped to stable v1.0.0 release
 - Collection now runs plugin lifecycle hooks (before/after create, update, delete)
 - QueryExecutor now applies basic text search filtering (case-insensitive `includes`)
 - MemoryAdapter `create()` respects custom `data.id` for FTS index records
 - ConnectionError usage fixed in Database class
-
-### Added (plugins)
-- FTS Plugin: tokenizer, inverted index, lifecycle hooks for index maintenance
-- Relations Plugin: RelationsEngine with eager loading (belongs_to, has_many, has_one)
-- Validation Plugin: ValidationEngine with custom rules, built-in email/URL/empty-string validators
 
 ## [1.0.0-alpha.5] - 2026-06-17
 
