@@ -1,5 +1,6 @@
 export const VERSION = "1.0.0-alpha.1"
 
+export { createAdapter, IndexedDBAdapter, MemoryAdapter } from "./adapter/index"
 export {
   CollectionNotFoundError,
   ConnectionError,
