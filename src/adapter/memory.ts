@@ -37,11 +37,22 @@ export class MemoryAdapter implements StorageAdapter {
   async create(collection: string, data: unknown): Promise<Record<string, unknown>> {
     this.#ensureCollection(collection)
     const store = this.#data.get(collection)
-    const id = this.#counters.get(collection)
-    if (!store || id === undefined) throw new Error(`Collection "${collection}" not initialized`)
-    this.#counters.set(collection, id + 1)
-    const record = { id, ...(data as Record<string, unknown>) }
-    store.set(id as ID, record)
+    if (!store) throw new Error(`Collection "${collection}" not initialized`)
+
+    const input = data as Record<string, unknown>
+    const providedId = input.id as ID | undefined
+
+    let id: ID
+    if (providedId !== undefined) {
+      id = providedId
+    } else {
+      const next = this.#counters.get(collection) ?? 1
+      id = next as ID
+      this.#counters.set(collection, next + 1)
+    }
+
+    const record = { id, ...input }
+    store.set(id, record)
     return { ...record }
   }
 

@@ -86,9 +86,9 @@ export interface CtroDBPlugin {
   onBeforeCreate?(collection: string, data: unknown): unknown
   onAfterCreate?(collection: string, record: unknown): void
   onBeforeUpdate?(collection: string, id: ID, changes: unknown): unknown
-  onAfterUpdate?(collection: string, id: ID, record: unknown): void
+  onAfterUpdate?(collection: string, id: ID, record: unknown, oldRecord?: unknown): void
   onBeforeDelete?(collection: string, id: ID): void
-  onAfterDelete?(collection: string, id: ID): void
+  onAfterDelete?(collection: string, id: ID, oldRecord?: unknown): void
 }
 
 export interface TransactionContext {

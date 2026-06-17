@@ -1,0 +1,163 @@
+import { createAdapter } from "./adapter/create"
+import { Collection } from "./collection"
+import { ConnectionError } from "./errors"
+import { QueryExecutor } from "./query/executor"
+import { QueryPlanner } from "./query/planner"
+import { Signal } from "./reactive/signal"
+import { Schema } from "./schema"
+import type {
+  ChangeEvent,
+  CtroDBPlugin,
+  SchemaConfig,
+  StorageAdapter,
+  TransactionContext,
+} from "./types"
+
+export interface DatabaseConfig {
+  name?: string
+  adapter?: "indexeddb" | "memory" | StorageAdapter
+  schema?: SchemaConfig
+  plugins?: CtroDBPlugin[]
+  logLevel?: "debug" | "info" | "warn" | "error" | "silent"
+}
+
+const DEFAULT_NAME = "ctrodb"
+
+export class Database {
+  readonly name: string
+  #adapter: StorageAdapter
+  #schema: Schema | null = null
+  #planner = new QueryPlanner()
+  #executor = new QueryExecutor()
+  #collections = new Map<string, Collection<any>>()
+  #plugins: CtroDBPlugin[] = []
+  #changeSignal = new Signal<ChangeEvent | null>(null)
+  #connected = false
+
+  constructor(config: DatabaseConfig = {}) {
+    this.name = config.name ?? DEFAULT_NAME
+
+    if (config.adapter && typeof config.adapter === "object" && "name" in config.adapter) {
+      this.#adapter = config.adapter as StorageAdapter
+    } else {
+      this.#adapter = createAdapter(config.adapter as "indexeddb" | "memory" | undefined)
+    }
+
+    if (config.schema) {
+      this.#schema = new Schema(config.schema)
+    }
+
+    if (config.plugins) {
+      this.#plugins = config.plugins
+    }
+  }
+
+  get isConnected(): boolean {
+    return this.#connected
+  }
+
+  get adapterName(): string {
+    return this.#adapter.name
+  }
+
+  async connect(): Promise<void> {
+    if (this.#connected) return
+
+    const schemaConfig = this.#schema
+      ? {
+          version: this.#schema.version,
+          collections: Object.fromEntries(
+            Object.entries(this.#schema.collections).map(([name, col]) => [
+              name,
+              { fields: col.fields, indexes: col.indexes },
+            ]),
+          ) as Record<string, { fields: Record<string, unknown>; indexes?: unknown[] }>,
+        }
+      : null
+
+    await this.#adapter.connect(this.name, schemaConfig as unknown as SchemaConfig)
+
+    this.#connected = true
+
+    for (const plugin of this.#plugins) {
+      if (plugin.onDatabaseInit) {
+        plugin.onDatabaseInit(this)
+      }
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (!this.#connected) return
+
+    await this.#adapter.disconnect()
+    this.#collections.clear()
+    this.#connected = false
+  }
+
+  collection<T extends Record<string, unknown> = Record<string, unknown>>(
+    name: string,
+  ): Collection<T> {
+    if (!this.#connected && name !== "_create") {
+      throw new ConnectionError(this.name)
+    }
+
+    let col = this.#collections.get(name) as Collection<T> | undefined
+    if (!col) {
+      col = new Collection<T>(
+        name,
+        this.#getDatabaseShim(),
+        this.#adapter,
+        this.#schema,
+        this.#planner,
+        this.#executor,
+        this.#plugins,
+      )
+      this.#collections.set(name, col)
+
+      for (const plugin of this.#plugins) {
+        if (plugin.onCollectionInit) {
+          plugin.onCollectionInit(col)
+        }
+      }
+    }
+    return col
+  }
+
+  async transaction<T>(fn: (ctx: TransactionContext) => Promise<T>): Promise<T> {
+    this.#ensureConnected()
+    return this.#adapter.transaction(fn)
+  }
+
+  on(callback: (event: ChangeEvent) => void): () => void {
+    return this.#changeSignal.subscribe((event) => {
+      if (event) callback(event)
+    })
+  }
+
+  _getSchema(): Schema | null {
+    return this.#schema
+  }
+
+  _getAdapter(): StorageAdapter {
+    return this.#adapter
+  }
+
+  _emit(event: ChangeEvent): void {
+    this.#changeSignal.value = event
+  }
+
+  #getDatabaseShim() {
+    return {
+      name: this.name,
+      _getSchema: () => this.#schema,
+      _emit: (event: ChangeEvent) => this._emit(event),
+      collection: (name: string) => this.collection(name),
+    }
+  }
+
+  #ensureConnected(): void {
+    if (!this.#connected) {
+      throw new ConnectionError(this.name)
+    }
+  }
+}

@@ -26,13 +26,11 @@ export class QueryExecutor {
 
       case "full_scan": {
         if (plan.primaryConditions.length > 0 && plan.primaryConditions[0]?.type === "search") {
-          results = (await adapter.scanIndex(
-            collectionName,
-            plan.indexName ?? "__fts__",
-            undefined,
-            plan.primaryConditions,
-          )) as T[]
-          results = this.#applyFilters(results, plan.postFilterConditions)
+          results = (await adapter.findAll(collectionName)) as T[]
+          results = this.#applyFilters(results, [
+            ...plan.primaryConditions,
+            ...plan.postFilterConditions,
+          ])
         } else {
           results = (await adapter.findAll(collectionName)) as T[]
           results = this.#applyFilters(results, [
@@ -99,7 +97,13 @@ export class QueryExecutor {
     if (conditions.length === 0) return records
     return records.filter((record) =>
       conditions.every((cond) => {
-        if (cond.type === "search") return true
+        if (cond.type === "search") {
+          const recordValue = record[cond.field]
+          if (typeof recordValue === "string" && typeof cond.value === "string") {
+            return recordValue.toLowerCase().includes(cond.value.toLowerCase())
+          }
+          return false
+        }
         const recordValue = record[cond.field] as unknown
         switch (cond.op) {
           case "==":

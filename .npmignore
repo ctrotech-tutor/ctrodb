@@ -1,9 +1,15 @@
 tests/
+benchmarks/
+integration/
 docs/
 plans/
 coverage/
 src/
+examples/
 tsconfig.json
 tsup.config.ts
 vitest.config.ts
 biome.json
+CONTRIBUTING.md
+SECURITY.md
+AGENTS.md
