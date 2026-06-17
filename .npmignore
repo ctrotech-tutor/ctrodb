@@ -1,12 +1,9 @@
-# This file tells NPM which files and folders to NOT include in the published package.
-
-# Ignore development and testing artifacts
-node_modules/
-test/
-examples/
-rollup.config.js
-package-lock.json
-
-# Ignore common OS and editor files
-.DS_Store
-*.log
+tests/
+docs/
+plans/
+coverage/
+src/
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+biome.json

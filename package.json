@@ -1,35 +1,55 @@
 {
   "name": "ctrodb",
-  "version": "2.0.0",
-  "description": "A modern, high-performance, and reactive client-side database from Ctrotech. Built with zero dependencies and based on Ctrotech Tutor insights, focusing on speed, a clean API, and a powerful, live query system with full-text search.",
-  "main": "dist/ctrodb.cjs.js",
-  "module": "dist/ctrodb.esm.js",
-  "browser": "dist/ctrodb.umd.js",
+  "version": "1.0.0-alpha.1",
+  "description": "A zero-dependency, reactive, client-side database with full-text search and relations. Schema-driven, type-safe, and a joy to use.",
   "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "unpkg": "dist/index.global.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
   "files": [
     "dist",
-    "src",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "jest",
-    "build": "rollup -c"
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "ctrodb",
-    "ctrotech",
     "indexeddb",
     "database",
     "reactive",
     "client-side",
     "offline-first",
-    "javascript",
-    "full-text-search"
+    "full-text-search",
+    "typescript",
+    "zero-dependency"
   ],
   "author": "Ctrotech",
   "license": "MIT",
-  "homepage": "https://github.com/ctrotech-tutor/ctrodb#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ctrotech-tutor/ctrodb.git"
@@ -37,13 +57,17 @@
   "bugs": {
     "url": "https://github.com/ctrotech-tutor/ctrodb/issues"
   },
-  "devDependencies": {
-    "@rollup/plugin-node-resolve": "^16.0.1",
-    "jest": "^30.0.5",
-    "rollup": "^2.79.2",
-    "rollup-plugin-terser": "^7.0.2"
+  "homepage": "https://github.com/ctrotech-tutor/ctrodb#readme",
+  "engines": {
+    "node": ">=18"
   },
-  "dependencies": {
-    "ctrodb": "^2.0.0"
+  "sideEffects": false,
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@types/node": "^25.9.3",
+    "fake-indexeddb": "^6.2.5",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }
