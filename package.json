@@ -1,6 +1,6 @@
 {
   "name": "ctrodb",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A zero-dependency, reactive, client-side database with full-text search and relations. Schema-driven, type-safe, and a joy to use.",
   "type": "module",
   "main": "dist/index.cjs",
