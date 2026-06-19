@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="ctrodb" src="" width="400" />
+  <img alt="ctrodb" src="/public/logo.png" width="400" />
 </p>
 
 <h1 align="center">ctrodb</h1>
@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="version" />
+  <img src="https://img.shields.io/badge/version-1.0.1-blue" alt="version" />
   <img src="https://img.shields.io/badge/dependencies-zero-brightgreen" alt="zero dependencies" />
   <img src="https://img.shields.io/badge/build-tsup-red" alt="build" />
   <img src="https://img.shields.io/badge/coverage-173%20tests-success" alt="tests" />
