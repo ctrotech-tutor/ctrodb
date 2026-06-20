@@ -8,7 +8,11 @@ export default defineConfig([
     sourcemap: true,
     clean: true,
     minify: true,
-    globalName: "CtroDB",
+    outExtension({ format }) {
+      return {
+        js: format === "esm" ? ".mjs" : ".cjs",
+      }
+    },
   },
   {
     entry: ["src/react.ts"],
@@ -19,5 +23,10 @@ export default defineConfig([
     minify: true,
     external: ["react"],
     outDir: "dist/react",
+    outExtension({ format }) {
+      return {
+        js: format === "esm" ? ".mjs" : ".cjs",
+      }
+    },
   },
 ])

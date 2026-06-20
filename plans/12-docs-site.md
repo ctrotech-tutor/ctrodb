@@ -137,7 +137,7 @@ import { Tabs, Tab, NpmCommands } from "fumadocs-ui/components/tabs"
 ## Requirements
 
 - Node.js 20+ (for development tooling)
-- The library itself works in any modern browser or Node 18+
+- The library itself works in any modern browser or Node 20+
 ```
 
 #### Quick Start (`content/docs/getting-started/quick-start.mdx`)
