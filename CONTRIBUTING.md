@@ -49,7 +49,7 @@ npm install
 - **TypeScript** — Strict mode, no `any` in source (tests may cast).
 - **No runtime dependencies** — Zero-dep policy for core + plugins.
 - **Biome** — Linting and formatting. Run `npm run lint -- --write` before committing.
-- **Vitest** — Unit tests in `tests/unit/` (173+ tests). Run `npm test` for the full suite.
+- **Vitest** — Unit tests in `tests/unit/` (190+ tests). Run `npm test` for the full suite.
 - **React tests** — React hooks tested with `@testing-library/react` in jsdom.
 - **tsup** — Builds ESM, CJS, and IIFE. Run `npm run build`.
 

@@ -17,7 +17,7 @@ Run these checks in order:
 ```bash
 npm run typecheck     # TypeScript — 0 errors
 npm run lint          # Biome lint — 0 errors
-npm test              # Vitest — 173 tests pass
+npm test              # Vitest — 190 tests pass
 npm run build         # tsup — ESM, CJS, IIFE all build successfully
 ```
 

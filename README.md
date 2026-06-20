@@ -19,10 +19,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1" alt="version" />
+  <img src="https://img.shields.io/badge/version-1.0.2" alt="version" />
   <img src="https://img.shields.io/badge/dependencies-zero-brightgreen" alt="zero dependencies" />
   <img src="https://img.shields.io/badge/build-tsup-red" alt="build" />
-  <img src="https://img.shields.io/badge/coverage-173%20tests-success" alt="tests" />
+  <img src="https://img.shields.io/badge/coverage-190%20tests-success" alt="tests" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
 </p>
 
@@ -62,7 +62,7 @@ npm install ctrodb
 ### CDN (script tag)
 
 ```html
-<script src="https://unpkg.com/ctrodb@latest/dist/index.global.js"></script>
+<script src="https://unpkg.com/ctrodb@1.0.1/dist/index.global.js"></script>
 <script>
   const { Database } = CtroDB
   const db = new Database({ name: "my-app" })
@@ -163,7 +163,7 @@ db.on(callback)                             // Subscribe to all changes
 | `adapter` | `"indexeddb" \| "memory" \| StorageAdapter` | auto-detect | Storage backend |
 | `schema` | `SchemaConfig` | — | Schema definition |
 | `plugins` | `CtroDBPlugin[]` | — | Plugins to load |
-| `logLevel` | `string` | `"silent"` | Logging level |
+| `logLevel` | `string` | — | Reserved for future use (currently not implemented) |
 
 ### Collection\<T\>
 
@@ -265,21 +265,25 @@ const db = new Database({
 
 ### FTS Plugin
 
-Full-text search with inverted indexing:
+Full-text search with inverted indexing.
 
+**Indexing:**
+- On create/update/delete, tokens are extracted from `searchable` fields
+- Stored in a `_ctrodb_fts` collection as token→document ID mappings
+
+**Basic search (substring matching):**
 ```typescript
-// Schema marks searchable fields
-const schema = {
-  collections: {
-    articles: {
-      fields: { title: { type: "string" }, body: { type: "string" } },
-      searchable: ["title", "body"],  // <-- These fields are indexed
-    },
-  },
-}
-
-// Use search() in queries
+// Case-insensitive substring search — does NOT use the FTS index
 const results = await articles.query().search("title", "typescript").fetch()
+```
+
+**Indexed search (tokenized AND):**
+```typescript
+import { FTSIndexer } from "ctrodb"
+
+const indexer = new FTSIndexer(adapter)
+const ids = await indexer.search("articles", "typescript database")
+// Only documents matching ALL tokens
 ```
 
 Features: tokenization, stop-word removal, case-insensitive, multi-field, automatic index updates on create/update/delete.
@@ -421,7 +425,7 @@ src/
 ├── schema.ts         # Schema definition and validation
 └── types.ts          # Core TypeScript interfaces
 tests/
-├── unit/             # Unit tests (8 files, 173 tests)
+├── unit/             # Unit tests (14 files, 190 tests)
 ├── benchmarks/       # Performance benchmarks (WIP)
 └── integration/      # Cross-component tests (WIP)
 examples/
@@ -439,7 +443,7 @@ cd ctrodb
 npm install
 
 npm run dev           # Watch mode
-npm test              # Run tests (173 tests)
+npm test              # Run tests (190 tests)
 npm run typecheck     # TypeScript check
 npm run lint          # Biome lint
 npm run build         # Build ESM + CJS + IIFE
