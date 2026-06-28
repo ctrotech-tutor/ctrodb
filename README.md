@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.2" alt="version" />
+  <img src="https://img.shields.io/badge/version-1.1.0" alt="version" />
   <img src="https://img.shields.io/badge/dependencies-zero-brightgreen" alt="zero dependencies" />
   <img src="https://img.shields.io/badge/build-tsup-red" alt="build" />
   <img src="https://img.shields.io/badge/coverage-190%20tests-success" alt="tests" />
@@ -44,6 +44,7 @@ Perfect for local-first web apps, offline-capable PWAs, Electron applications, a
 | **Query Engine** | Fluent builder with index-aware planning, OR groupings, sort, pagination (limit/offset), full-text search. |
 | **Proxy Models** | Transparent property access on query results. Call `.update()` and `.delete()` directly on models. |
 | **Flexible Storage** | Memory adapter (testing/Node) and IndexedDB adapter (production browsers) with auto-detect. |
+| **UUID IDs** | Collision-free IDs via `crypto.randomUUID()`. No more auto-increment conflicts across tabs. |
 | **Plugin System** | Lifecycle hooks (`onBeforeCreate`, `onAfterUpdate`, etc.) for extensibility. |
 | **Full-Text Search** | Inverted-index FTS plugin with tokenization, stop-word filtering, multi-field search. |
 | **Relations** | `has_many`, `belongs_to`, `has_one` with lazy getters and eager loading. |
@@ -62,7 +63,7 @@ npm install ctrodb
 ### CDN (script tag)
 
 ```html
-<script src="https://unpkg.com/ctrodb@1.0.1/dist/index.global.js"></script>
+<script src="https://unpkg.com/ctrodb@1.1.0/dist/index.global.js"></script>
 <script>
   const { Database } = CtroDB
   const db = new Database({ name: "my-app" })
@@ -352,8 +353,10 @@ function App() {
 }
 
 function TodoList() {
-  const todos = useQuery("todos", (q) => q.sort({ createdAt: "desc" }))
+  const { data: todos, loading } = useQuery("todos", (q) => q.sort({ createdAt: "desc" }))
   const { create, delete: remove } = useMutation("todos")
+
+  if (loading) return <div>Loading...</div>
 
   return (
     <ul>
@@ -372,9 +375,9 @@ function TodoList() {
 ### Hooks API
 
 | Hook | Returns | Description |
-|---|---|---|
-| `useQuery<T>(name, queryFn?, deps?)` | `(Model<T> & T)[]` | Reactive query, re-fetches on changes |
-| `useDoc<T>(name, id)` | `(Model<T> & T) \| undefined` | Single document by ID |
+|---|---|---|---|
+| `useQuery<T>(name, queryFn?, deps?)` | `{ data: (Model<T> & T)[]; loading: boolean; error: Error \| null }` | Reactive query, re-fetches on changes |
+| `useDoc<T>(name, id)` | `{ data: (Model<T> & T) \| undefined; loading: boolean; error: Error \| null }` | Single document by ID |
 | `useMutation<T>(name)` | `{ create, update, delete, loading, error, reset }` | CRUD with loading/error state |
 
 ---
@@ -432,6 +435,37 @@ examples/
 ├── cdn/              # Browser CDN example
 └── node/             # Node.js CLI example
 ```
+
+---
+
+## Migrating from v1.0.x
+
+### v1.1.0 Breaking Changes
+
+**1. `useQuery` / `useDoc` return `{ data, loading, error }`**
+
+```diff
+- const todos = useQuery("todos")
++ const { data: todos, loading } = useQuery("todos")
+
+- const post = useDoc("posts", id)
++ const { data: post } = useDoc("posts", id)
+```
+
+**2. IDs are now UUID strings instead of auto-incremented numbers**
+
+All records created via `Collection.create()` get a UUID string ID. Foreign key fields in relation schemas must use `type: "string"`.
+
+```diff
+- authorId: { type: "number", required: true }
++ authorId: { type: "string", required: true }
+```
+
+When creating records with explicit IDs via the adapter layer, you must provide an `id`.
+
+**3. Plugin hooks can now be async**
+
+If you implement custom plugin hooks, they may return a Promise — `runHook` now `await`s the result before passing data to the next hook.
 
 ---
 
