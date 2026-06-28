@@ -4,7 +4,13 @@ import type { QueryExecutor } from "./query/executor"
 import type { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
 import type { Schema } from "./schema"
-import type { ChangeEvent, CtroDBPlugin, ID, StorageAdapter } from "./types"
+import type {
+  ChangeEvent,
+  CtroDBPlugin,
+  ID,
+  RelationDefinition,
+  StorageAdapter,
+} from "./types"
 import { runHook } from "./utils/plugin-hooks"
 
 interface DatabaseShim {
@@ -50,21 +56,23 @@ export class Collection<T extends Record<string, unknown>> {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   }
 
-  async create(data: Partial<T>): Promise<Model<T> & T> {
+  async create(data: Omit<T, "id"> & { id?: ID }): Promise<Model<T> & T> {
     const raw = { ...data } as Record<string, unknown>
     if (raw.id === undefined) {
       raw.id = this.#generateId()
     }
 
-    let processed = (await runHook(this.#plugins, "onBeforeCreate", this.name, raw)) as Record<
-      string,
-      unknown
-    >
+    let processed: Record<string, unknown> = raw
 
     if (this.#schema) {
       processed = this.#schema.applyDefaults(this.name, processed)
       this.#schema.validate(this.name, processed)
     }
+
+    processed = (await runHook(this.#plugins, "onBeforeCreate", this.name, processed)) as Record<
+      string,
+      unknown
+    >
 
     const record = (await this.#adapter.create(this.name, processed)) as T
     const model = this._toModel(record)
@@ -175,7 +183,7 @@ export class Collection<T extends Record<string, unknown>> {
         return this.update(data.id, data as Partial<T>)
       }
     }
-    return this.create(data as Partial<T>)
+    return this.create(data as Omit<T, "id"> & { id?: ID })
   }
 
   async count(): Promise<number> {
@@ -185,6 +193,18 @@ export class Collection<T extends Record<string, unknown>> {
 
   query(): QueryBuilder<T> {
     return new QueryBuilder<T>(this.#getQueryableCollection(), this.#planner, this.#executor)
+  }
+
+  with(...relations: string[]): QueryBuilder<T> {
+    const qb = this.query()
+    const origFetch = qb.fetch.bind(qb)
+    const self = this
+    qb.fetch = async () => {
+      const models = await origFetch()
+      await self.#eagerLoad(models, relations)
+      return models
+    }
+    return qb
   }
 
   onChange(callback: (event: ChangeEvent) => void): () => void {
@@ -220,6 +240,98 @@ export class Collection<T extends Record<string, unknown>> {
 
   _getAdapter(): StorageAdapter {
     return this.#adapter
+  }
+
+  async #eagerLoad(
+    models: Array<Model<T> & T>,
+    relations: string[],
+  ): Promise<void> {
+    if (models.length === 0 || !this.#schema) return
+    for (const relationName of relations) {
+      const def = this.#schema.getRelations(this.name)?.[relationName]
+      if (!def) continue
+      switch (def.type) {
+        case "belongs_to":
+          await this.#eagerLoadBelongsTo(models, relationName, def)
+          break
+        case "has_many":
+          await this.#eagerLoadHasMany(models, relationName, def)
+          break
+        case "has_one":
+          await this.#eagerLoadHasOne(models, relationName, def)
+          break
+      }
+    }
+  }
+
+  async #eagerLoadBelongsTo(
+    models: Array<Model<T> & T>,
+    relationName: string,
+    def: RelationDefinition,
+  ): Promise<void> {
+    const fks = models
+      .map((m) => (m as Record<string, unknown>)[def.foreignKey] as ID | undefined)
+      .filter((id): id is ID => id != null)
+    if (fks.length === 0) return
+    const all = await (this.#db.collection(def.collection) as Collection<any>).getAll()
+    const map = new Map(all.map((r) => [r.id, r]))
+    for (const model of models) {
+      const fk = (model as Record<string, unknown>)[def.foreignKey] as ID | undefined
+      if (fk !== undefined) {
+        Object.defineProperty(model, relationName, {
+          value: map.get(fk),
+          enumerable: true,
+          configurable: true,
+        })
+      }
+    }
+  }
+
+  async #eagerLoadHasMany(
+    models: Array<Model<T> & T>,
+    relationName: string,
+    def: RelationDefinition,
+  ): Promise<void> {
+    const ids = models.map((m) => m.id).filter((id): id is ID => id != null)
+    if (ids.length === 0) return
+    const all = await (this.#db.collection(def.collection) as Collection<any>).getAll()
+    const grouped = new Map<ID, typeof all>()
+    for (const r of all) {
+      const fk = (r as Record<string, unknown>)[def.foreignKey] as ID | undefined
+      if (fk !== undefined) {
+        if (!grouped.has(fk)) grouped.set(fk, [])
+        grouped.get(fk)?.push(r)
+      }
+    }
+    for (const model of models) {
+      Object.defineProperty(model, relationName, {
+        value: grouped.get(model.id) ?? [],
+        enumerable: true,
+        configurable: true,
+      })
+    }
+  }
+
+  async #eagerLoadHasOne(
+    models: Array<Model<T> & T>,
+    relationName: string,
+    def: RelationDefinition,
+  ): Promise<void> {
+    const ids = models.map((m) => m.id).filter((id): id is ID => id != null)
+    if (ids.length === 0) return
+    const all = await (this.#db.collection(def.collection) as Collection<any>).getAll()
+    const grouped = new Map<ID, (typeof all)[0]>()
+    for (const r of all) {
+      const fk = (r as Record<string, unknown>)[def.foreignKey] as ID | undefined
+      if (fk !== undefined && !grouped.has(fk)) grouped.set(fk, r)
+    }
+    for (const model of models) {
+      Object.defineProperty(model, relationName, {
+        value: grouped.get(model.id),
+        enumerable: true,
+        configurable: true,
+      })
+    }
   }
 
   #getQueryableCollection() {

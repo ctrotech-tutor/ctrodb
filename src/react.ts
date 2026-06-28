@@ -14,14 +14,19 @@ import type { ChangeEvent, ID } from "./types"
 
 let defaultDb: Database | null = null
 
+/** @deprecated Use <DatabaseProvider> instead. Will be removed in v2.0. */
 export function setDefaultDatabase(db: Database): void {
+  console.warn(
+    "[ctrodb] setDefaultDatabase() is deprecated. Wrap your app in <DatabaseProvider db={db}> instead.",
+  )
   defaultDb = db
 }
 
+/** @deprecated Use <DatabaseProvider> and useDatabase() instead. Will be removed in v2.0. */
 export function getDb(): Database {
   if (!defaultDb) {
     throw new Error(
-      "No database instance found. Call setDefaultDatabase(db) or wrap your app in <DatabaseProvider db={db}>.",
+      "No database instance found. Wrap your app in <DatabaseProvider db={db}> or call setDefaultDatabase(db).",
     )
   }
   return defaultDb
@@ -30,16 +35,13 @@ export function getDb(): Database {
 const DbContext = createContext<Database | null>(null)
 
 export function DatabaseProvider({ db, children }: { db: Database; children: React.ReactNode }) {
-  setDefaultDatabase(db)
   return createElement(DbContext.Provider, { value: db }, children)
 }
 
 export function useDatabase(): Database {
   const ctx = useContext(DbContext)
-  if (!ctx) {
-    return getDb()
-  }
-  return ctx
+  if (ctx) return ctx
+  return getDb()
 }
 
 export interface QueryResult<T extends Record<string, unknown>> {
@@ -119,7 +121,7 @@ export function useDoc<T extends Record<string, unknown>>(
 export function useMutation<T extends Record<string, unknown>>(
   collectionName: string,
 ): {
-  create: (data: Partial<T>) => Promise<Model<T> & T>
+  create: (data: Omit<T, "id"> & { id?: ID }) => Promise<Model<T> & T>
   update: (id: ID, changes: Partial<T>) => Promise<Model<T> & T>
   delete: (id: ID) => Promise<void>
   loading: boolean
@@ -131,7 +133,7 @@ export function useMutation<T extends Record<string, unknown>>(
   const [error, setError] = useState<Error | undefined>()
 
   const create = useCallback(
-    async (data: Partial<T>) => {
+    async (data: Omit<T, "id"> & { id?: ID }) => {
       setLoading(true)
       setError(undefined)
       try {

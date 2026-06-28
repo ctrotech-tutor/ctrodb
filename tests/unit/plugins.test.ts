@@ -3,7 +3,7 @@ import { Database } from "../../src/database"
 import { ftsPlugin } from "../../src/plugins/fts/index"
 import { FTSIndexer } from "../../src/plugins/fts/indexer"
 import { tokenize } from "../../src/plugins/fts/tokenizer"
-import { relationsPlugin, RelationsEngine } from "../../src/plugins/relations/index"
+import { relationsPlugin } from "../../src/plugins/relations/index"
 import { validationPlugin, ValidationEngine } from "../../src/plugins/validation/index"
 import type { ValidationRule } from "../../src/plugins/validation/index"
 import { MemoryAdapter } from "../../src/adapter/memory"
@@ -217,7 +217,7 @@ describe("Relations Plugin", () => {
     await db.disconnect()
   })
 
-  it("RelationsEngine.eagerLoad works standalone", async () => {
+  it("eager loads relations with .with()", async () => {
     const db = testDb()
     await db.connect()
 
@@ -229,19 +229,14 @@ describe("Relations Plugin", () => {
     await profiles.create({ bio: "Jane's bio", userId: user.id })
     await posts.create({ title: "Post by Jane", content: "Content", userId: user.id })
 
-    const engine = new RelationsEngine(db as any)
-
-    const loadedUsers = await users.getAll()
-    await engine.eagerLoad(loadedUsers as any, "users", ["profiles"])
-
-    const userWithProfiles = await users.query().fetch()
+    const userWithProfiles = await users.with("profiles").fetch()
     expect(userWithProfiles.length).toBeGreaterThanOrEqual(1)
 
     await db.disconnect()
   })
 
-  it("monkey-patched query with relations works", async () => {
-    const db = testDb([relationsPlugin()])
+  it("eager loads belongs_to with .with()", async () => {
+    const db = testDb()
     await db.connect()
 
     const users = db.collection("users")
@@ -250,17 +245,9 @@ describe("Relations Plugin", () => {
     const user = await users.create({ name: "WithUser", email: "with@test.com" })
     await posts.create({ title: "With Post", content: "Test", userId: user.id })
 
-    const results = await (posts as any).query("author").fetch()
+    const results = await posts.with("author").fetch()
     expect(results.length).toBeGreaterThanOrEqual(1)
 
-    await db.disconnect()
-  })
-
-  it("handles empty model list in eager load", async () => {
-    const db = testDb()
-    await db.connect()
-    const engine = new RelationsEngine(db as any)
-    await expect(engine.eagerLoad([], "users", ["profiles"])).resolves.toBeUndefined()
     await db.disconnect()
   })
 })

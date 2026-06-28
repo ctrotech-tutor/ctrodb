@@ -35,6 +35,19 @@ export class QueryPlanner {
     _collectionSchema: CollectionSchema | null,
     indexes: IndexDefinition[],
   ): QueryPlan {
+    const idEquality = conditions.find(
+      (c) => c.field === "id" && c.op === "==",
+    )
+    if (idEquality) {
+      const remaining = conditions.filter((c) => c !== idEquality)
+      return {
+        strategy: "id_lookup",
+        primaryConditions: [idEquality],
+        postFilterConditions: remaining,
+        groupType: "single",
+      }
+    }
+
     const indexedConditions: QueryCondition[] = []
     const nonIndexedConditions: QueryCondition[] = []
     let searchCondition: QueryCondition | null = null
