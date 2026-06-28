@@ -71,18 +71,20 @@ describe.each([
     expect(adapter.isConnected()).toBe(true)
   })
 
-  it("creates a record with auto-increment id", async () => {
+  it("creates a record with id", async () => {
     const record = await adapter.create("users", {
+      id: 1,
       name: "Alice",
       email: "alice@test.com",
       age: 30,
     })
-    expect(record.id).toBeDefined()
+    expect(record.id).toBe(1)
     expect(record.name).toBe("Alice")
   })
 
   it("finds a record by id", async () => {
     const record = await adapter.create("users", {
+      id: 2,
       name: "Bob",
       email: "bob@test.com",
       age: 25,
@@ -109,6 +111,7 @@ describe.each([
 
   it("updates a record", async () => {
     const record = await adapter.create("users", {
+      id: 3,
       name: "Charlie",
       email: "charlie@test.com",
       age: 35,
@@ -123,6 +126,7 @@ describe.each([
 
   it("deletes a record", async () => {
     const record = await adapter.create("users", {
+      id: 4,
       name: "DeleteMe",
       email: "delete@test.com",
       age: 99,
@@ -134,11 +138,13 @@ describe.each([
 
   it("deletes multiple records", async () => {
     const r1 = await adapter.create("users", {
+      id: 5,
       name: "Batch1",
       email: "batch1@test.com",
       age: 10,
     })
     const r2 = await adapter.create("users", {
+      id: 6,
       name: "Batch2",
       email: "batch2@test.com",
       age: 10,
@@ -194,7 +200,7 @@ describe.each([
         const col = ctx.collection("users") as {
           create(data: Record<string, unknown>): Promise<Record<string, unknown>>
         }
-        await col.create({ name: "Rollback", email: "rollback@test.com", age: 0 })
+        await col.create({ id: 100, name: "Rollback", email: "rollback@test.com", age: 0 })
         throw new Error("force rollback")
       })
     } catch {

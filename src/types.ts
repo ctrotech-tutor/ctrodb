@@ -37,6 +37,7 @@ export interface CollectionSchema {
 export interface SchemaConfig {
   version: number
   collections: Record<string, CollectionSchema>
+  pluginStoreNames?: string[]
 }
 
 export type QueryOperator = "==" | "!=" | ">" | "<" | ">=" | "<="
@@ -81,6 +82,7 @@ export interface ChangeEvent {
 export interface CtroDBPlugin {
   name: string
   version?: string
+  storeNames?: string[]
   onDatabaseInit?(db: unknown): void
   onCollectionInit?(collection: unknown): void
   onBeforeCreate?(collection: string, data: unknown): unknown

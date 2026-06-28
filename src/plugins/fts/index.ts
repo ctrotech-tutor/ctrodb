@@ -10,6 +10,7 @@ export function ftsPlugin(): CtroDBPlugin {
   return {
     name: "fts",
     version: "1.0.0",
+    storeNames: ["_ctrodb_fts"],
 
     onDatabaseInit(db: Database) {
       indexer = new FTSIndexer(db._getAdapter())

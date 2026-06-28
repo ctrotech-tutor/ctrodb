@@ -42,7 +42,8 @@ describe("react integration", () => {
     const { result: mutationResult } = renderHook(() => useMutation<Item>("items"), { wrapper })
 
     await waitFor(() => {
-      expect(queryResult.current).toHaveLength(0)
+      expect(queryResult.current.loading).toBe(false)
+      expect(queryResult.current.data).toHaveLength(0)
     })
 
     await act(async () => {
@@ -50,10 +51,10 @@ describe("react integration", () => {
     })
 
     await waitFor(() => {
-      expect(queryResult.current.length).toBe(1)
+      expect(queryResult.current.data.length).toBe(1)
     })
 
-    const item = queryResult.current[0]
+    const item = queryResult.current.data[0]
     expect(item.label).toBe("alpha")
   })
 
@@ -72,7 +73,7 @@ describe("react integration", () => {
     })
 
     await waitFor(() => {
-      const found = queryResult.current.find((i) => i.id === createdId)
+      const found = queryResult.current.data.find((i) => i.id === createdId)
       expect(found?.label).toBe("after")
     })
   })
@@ -88,7 +89,7 @@ describe("react integration", () => {
     })
 
     await waitFor(() => {
-      expect(queryResult.current.some((i) => i.id === createdId)).toBe(true)
+      expect(queryResult.current.data.some((i) => i.id === createdId)).toBe(true)
     })
 
     await act(async () => {
@@ -96,7 +97,7 @@ describe("react integration", () => {
     })
 
     await waitFor(() => {
-      expect(queryResult.current.some((i) => i.id === createdId)).toBe(false)
+      expect(queryResult.current.data.some((i) => i.id === createdId)).toBe(false)
     })
   })
 })

@@ -40,15 +40,9 @@ export class MemoryAdapter implements StorageAdapter {
     if (!store) throw new Error(`Collection "${collection}" not initialized`)
 
     const input = data as Record<string, unknown>
-    const providedId = input.id as ID | undefined
-
-    let id: ID
-    if (providedId !== undefined) {
-      id = providedId
-    } else {
-      const next = this.#counters.get(collection) ?? 1
-      id = next as ID
-      this.#counters.set(collection, next + 1)
+    const id = input.id as ID
+    if (id === undefined) {
+      throw new Error("id is required. Use collection.create({ id: '...', ... }) or let the Collection layer generate one.")
     }
 
     const record = { id, ...input }

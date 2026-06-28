@@ -33,11 +33,15 @@ afterAll(async () => {
 })
 
 describe("useQuery", () => {
-  it("returns empty array initially for empty collection", async () => {
-    const { result } = renderHook(() => useQuery("nonexistent"), { wrapper })
+  it("returns loading true initially, then data on completion", async () => {
+    const { result } = renderHook(() => useQuery("tasks"), { wrapper })
+
+    expect(result.current.loading).toBe(true)
+    expect(result.current.data).toEqual([])
+    expect(result.current.error).toBeUndefined()
 
     await waitFor(() => {
-      expect(Array.isArray(result.current)).toBe(true)
+      expect(result.current.loading).toBe(false)
     })
   })
 
@@ -49,10 +53,10 @@ describe("useQuery", () => {
     const { result } = renderHook(() => useQuery("tasks"), { wrapper })
 
     await waitFor(() => {
-      expect(result.current.length).toBeGreaterThanOrEqual(1)
+      expect(result.current.data.length).toBeGreaterThanOrEqual(1)
     })
 
-    const task = result.current.find((t: any) => t.title === "Test Task")
+    const task = result.current.data.find((t: any) => t.title === "Test Task")
     expect(task).toBeDefined()
     expect((task as any).title).toBe("Test Task")
   })
@@ -68,21 +72,22 @@ describe("useQuery", () => {
     )
 
     await waitFor(() => {
-      expect(result.current.length).toBeGreaterThanOrEqual(1)
+      expect(result.current.data.length).toBeGreaterThanOrEqual(1)
     })
 
-    for (const task of result.current) {
+    for (const task of result.current.data) {
       expect((task as any).done).toBe(true)
     }
   })
 })
 
 describe("useDoc", () => {
-  it("returns undefined for non-existent id", async () => {
+  it("returns undefined data for non-existent id", async () => {
     const { result } = renderHook(() => useDoc("tasks", 99999), { wrapper })
 
     await waitFor(() => {
-      expect(result.current).toBeUndefined()
+      expect(result.current.loading).toBe(false)
+      expect(result.current.data).toBeUndefined()
     })
   })
 
@@ -96,8 +101,9 @@ describe("useDoc", () => {
     const { result } = renderHook(() => useDoc("tasks", createdId), { wrapper })
 
     await waitFor(() => {
-      expect(result.current).toBeDefined()
-      expect((result.current as any).title).toBe("Doc Test")
+      expect(result.current.loading).toBe(false)
+      expect(result.current.data).toBeDefined()
+      expect((result.current.data as any).title).toBe("Doc Test")
     })
   })
 })
@@ -174,6 +180,8 @@ describe("DatabaseProvider", () => {
   it("provides database through context", () => {
     const { result } = renderHook(() => useQuery("tasks"), { wrapper })
 
-    expect(Array.isArray(result.current)).toBe(true)
+    expect(result.current).toHaveProperty("data")
+    expect(result.current).toHaveProperty("loading")
+    expect(result.current).toHaveProperty("error")
   })
 })

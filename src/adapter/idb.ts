@@ -28,7 +28,6 @@ function createMigrationHandler(schema: SchemaConfig | null) {
       if (!db.objectStoreNames.contains(collectionName)) {
         const store = db.createObjectStore(collectionName, {
           keyPath: "id",
-          autoIncrement: true,
         })
 
         if (collectionSchema.indexes) {
@@ -37,6 +36,14 @@ function createMigrationHandler(schema: SchemaConfig | null) {
               unique: indexDef.unique || false,
             })
           }
+        }
+      }
+    }
+
+    if (schema.pluginStoreNames) {
+      for (const storeName of schema.pluginStoreNames) {
+        if (!db.objectStoreNames.contains(storeName)) {
+          db.createObjectStore(storeName, { keyPath: "id" })
         }
       }
     }

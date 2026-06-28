@@ -63,6 +63,10 @@ export class Database {
   async connect(): Promise<void> {
     if (this.#connected) return
 
+    const pluginStoreNames = this.#plugins.flatMap(
+      (p: CtroDBPlugin & { storeNames?: string[] }) => p.storeNames ?? [],
+    )
+
     const schemaConfig = this.#schema
       ? {
           version: this.#schema.version,
@@ -72,6 +76,7 @@ export class Database {
               { fields: col.fields, indexes: col.indexes },
             ]),
           ) as Record<string, { fields: Record<string, unknown>; indexes?: unknown[] }>,
+          pluginStoreNames,
         }
       : null
 

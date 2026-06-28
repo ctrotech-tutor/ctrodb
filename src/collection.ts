@@ -43,8 +43,20 @@ export class Collection<T extends Record<string, unknown>> {
     this.#plugins = plugins
   }
 
+  #generateId(): ID {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID()
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  }
+
   async create(data: Partial<T>): Promise<Model<T> & T> {
-    let processed = runHook(this.#plugins, "onBeforeCreate", this.name, { ...data }) as Record<
+    const raw = { ...data } as Record<string, unknown>
+    if (raw.id === undefined) {
+      raw.id = this.#generateId()
+    }
+
+    let processed = (await runHook(this.#plugins, "onBeforeCreate", this.name, raw)) as Record<
       string,
       unknown
     >
@@ -57,7 +69,7 @@ export class Collection<T extends Record<string, unknown>> {
     const record = (await this.#adapter.create(this.name, processed)) as T
     const model = this._toModel(record)
 
-    runHook(this.#plugins, "onAfterCreate", this.name, record)
+    await runHook(this.#plugins, "onAfterCreate", this.name, record)
 
     const event: ChangeEvent = {
       type: "create",
@@ -86,9 +98,9 @@ export class Collection<T extends Record<string, unknown>> {
     const existing = (await this.#adapter.findById(this.name, id)) as T | undefined
     if (!existing) throw new Error(`Record "${id}" not found in collection "${this.name}"`)
 
-    const processed = runHook(this.#plugins, "onBeforeUpdate", this.name, id, {
+    const processed = (await runHook(this.#plugins, "onBeforeUpdate", this.name, id, {
       ...changes,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
     if (this.#schema) {
       this.#schema.validate(this.name, { ...existing, ...processed })
@@ -97,7 +109,7 @@ export class Collection<T extends Record<string, unknown>> {
     const updated = (await this.#adapter.update(this.name, id, processed)) as T
     const model = this._toModel(updated)
 
-    runHook(this.#plugins, "onAfterUpdate", this.name, id, updated, existing)
+    await runHook(this.#plugins, "onAfterUpdate", this.name, id, updated, existing)
 
     const event: ChangeEvent = {
       type: "update",
@@ -115,11 +127,11 @@ export class Collection<T extends Record<string, unknown>> {
   async delete(id: ID): Promise<void> {
     const existing = (await this.#adapter.findById(this.name, id)) as T | undefined
 
-    runHook(this.#plugins, "onBeforeDelete", this.name, id)
+    await runHook(this.#plugins, "onBeforeDelete", this.name, id)
 
     await this.#adapter.delete(this.name, id)
 
-    runHook(this.#plugins, "onAfterDelete", this.name, id, existing)
+    await runHook(this.#plugins, "onAfterDelete", this.name, id, existing)
 
     const event: ChangeEvent = {
       type: "delete",
@@ -136,14 +148,14 @@ export class Collection<T extends Record<string, unknown>> {
     for (const id of ids) {
       const record = (await this.#adapter.findById(this.name, id)) as T | undefined
       if (record) existingMap.set(id, record)
-      runHook(this.#plugins, "onBeforeDelete", this.name, id)
+      await runHook(this.#plugins, "onBeforeDelete", this.name, id)
     }
 
     await this.#adapter.deleteMany(this.name, ids)
 
     for (const id of ids) {
       const existing = existingMap.get(id)
-      runHook(this.#plugins, "onAfterDelete", this.name, id, existing)
+      await runHook(this.#plugins, "onAfterDelete", this.name, id, existing)
 
       const event: ChangeEvent = {
         type: "delete",

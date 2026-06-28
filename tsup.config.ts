@@ -29,7 +29,9 @@ export default defineConfig([
   {
     entry: ["src/react.ts"],
     format: ["esm", "cjs"],
-    dts: true,
+    dts: {
+      resolve: ["react", "react-dom"],
+    },
     sourcemap: true,
     clean: false,
     minify: true,

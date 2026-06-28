@@ -27,7 +27,7 @@ function testDb(plugins?: any[]) {
           fields: {
             name: { type: "string", required: true },
             email: { type: "string", validate: "email" as const },
-            profileId: { type: "number" },
+            profileId: { type: "string" },
           },
           indexes: [{ field: "email", unique: true }],
         },
@@ -35,7 +35,7 @@ function testDb(plugins?: any[]) {
           fields: {
             title: { type: "string", required: true },
             content: { type: "string" },
-            userId: { type: "number" },
+            userId: { type: "string" },
           },
           relations: {
             author: { type: "belongs_to", collection: "users", foreignKey: "userId" },
@@ -44,7 +44,7 @@ function testDb(plugins?: any[]) {
         profiles: {
           fields: {
             bio: { type: "string" },
-            userId: { type: "number" },
+            userId: { type: "string" },
           },
           relations: {
             user: { type: "belongs_to", collection: "users", foreignKey: "userId" },
@@ -53,7 +53,7 @@ function testDb(plugins?: any[]) {
         comments: {
           fields: {
             text: { type: "string" },
-            postId: { type: "number" },
+            postId: { type: "string" },
           },
           relations: {
             post: { type: "belongs_to", collection: "posts", foreignKey: "postId" },
@@ -209,7 +209,7 @@ describe("Relations Plugin", () => {
     const profiles = db.collection("profiles")
 
     const user = await users.create({ name: "John", email: "john@test.com" })
-    await profiles.create({ bio: "Hello!", userId: user.id as number })
+    await profiles.create({ bio: "Hello!", userId: user.id })
 
     const allProfiles = await profiles.query().fetch()
     expect(allProfiles.length).toBe(1)
@@ -226,8 +226,8 @@ describe("Relations Plugin", () => {
     const posts = db.collection("posts")
 
     const user = await users.create({ name: "Jane", email: "jane@test.com" })
-    await profiles.create({ bio: "Jane's bio", userId: user.id as number })
-    await posts.create({ title: "Post by Jane", content: "Content", userId: user.id as number })
+    await profiles.create({ bio: "Jane's bio", userId: user.id })
+    await posts.create({ title: "Post by Jane", content: "Content", userId: user.id })
 
     const engine = new RelationsEngine(db as any)
 
@@ -248,7 +248,7 @@ describe("Relations Plugin", () => {
     const posts = db.collection("posts")
 
     const user = await users.create({ name: "WithUser", email: "with@test.com" })
-    await posts.create({ title: "With Post", content: "Test", userId: user.id as number })
+    await posts.create({ title: "With Post", content: "Test", userId: user.id })
 
     const results = await (posts as any).query("author").fetch()
     expect(results.length).toBeGreaterThanOrEqual(1)

@@ -20,7 +20,7 @@ describe("relations plugin integration", () => {
         posts: {
           fields: {
             title: { type: "string", required: true },
-            authorId: { type: "number", required: true },
+            authorId: { type: "string", required: true },
           },
           relations: {
             author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },
@@ -40,9 +40,9 @@ describe("relations plugin integration", () => {
     const alice = await db.collection("authors").create({ name: "Alice" })
     const bob = await db.collection("authors").create({ name: "Bob" })
 
-    await db.collection("posts").create({ title: "Post 1", authorId: alice.id as number })
-    await db.collection("posts").create({ title: "Post 2", authorId: alice.id as number })
-    await db.collection("posts").create({ title: "Post 3", authorId: bob.id as number })
+    await db.collection("posts").create({ title: "Post 1", authorId: alice.id })
+    await db.collection("posts").create({ title: "Post 2", authorId: alice.id })
+    await db.collection("posts").create({ title: "Post 3", authorId: bob.id })
 
     const authorsWithPosts = await db.collection("authors").with("posts").fetch()
 
@@ -84,7 +84,7 @@ describe("relations plugin integration", () => {
         posts: {
           fields: {
             title: { type: "string", required: true },
-            authorId: { type: "number", required: true },
+            authorId: { type: "string", required: true },
           },
           relations: {
             author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },

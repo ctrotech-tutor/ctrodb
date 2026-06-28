@@ -42,13 +42,27 @@ export function useDatabase(): Database {
   return ctx
 }
 
+export interface QueryResult<T extends Record<string, unknown>> {
+  data: Array<Model<T> & T>
+  loading: boolean
+  error: Error | undefined
+}
+
+export interface DocResult<T extends Record<string, unknown>> {
+  data: (Model<T> & T) | undefined
+  loading: boolean
+  error: Error | undefined
+}
+
 export function useQuery<T extends Record<string, unknown>>(
   collectionName: string,
   queryFn?: (q: QueryBuilder<T>) => QueryBuilder<T>,
   deps: unknown[] = [],
-): Array<Model<T> & T> {
+): QueryResult<T> {
   const db = useDatabase()
   const [results, setResults] = useState<Array<Model<T> & T>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | undefined>()
   const queryFnRef = useRef(queryFn)
   queryFnRef.current = queryFn
 
@@ -57,6 +71,8 @@ export function useQuery<T extends Record<string, unknown>>(
     let cancelled = false
 
     async function runQuery() {
+      setLoading(true)
+      setError(undefined)
       let query = collection.query()
       if (queryFnRef.current) {
         query = queryFnRef.current(query)
@@ -64,8 +80,10 @@ export function useQuery<T extends Record<string, unknown>>(
       try {
         const data = await query.fetch()
         if (!cancelled) setResults(data)
-      } catch {
-        // query error handled silently — retry on next change
+      } catch (e) {
+        if (!cancelled) setError(e as Error)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
 
@@ -83,17 +101,19 @@ export function useQuery<T extends Record<string, unknown>>(
     }
   }, [collectionName, db, ...deps])
 
-  return results
+  return { data: results, loading, error }
 }
 
 export function useDoc<T extends Record<string, unknown>>(
   collectionName: string,
   id: ID | undefined,
-): (Model<T> & T) | undefined {
-  const results = useQuery<T>(collectionName, (q) => q.where("id" as any, "==" as any, id as any), [
-    id,
-  ])
-  return results[0]
+): DocResult<T> {
+  const { data, loading, error } = useQuery<T>(
+    collectionName,
+    (q) => q.where("id" as any, "==" as any, id as any),
+    [id],
+  )
+  return { data: data[0], loading, error }
 }
 
 export function useMutation<T extends Record<string, unknown>>(
