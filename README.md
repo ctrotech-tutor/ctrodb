@@ -6,55 +6,66 @@
 
 <p align="center">
   <strong>Zero-dependency, reactive, client-side database for browser and Node.js</strong>
+  <br />
+  Schema-driven · Full-text search · Relations · React hooks · IndexedDB persistence
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#api">API</a> •
-  <a href="#plugins">Plugins</a> •
-  <a href="#react">React</a> •
-  <a href="#examples">Examples</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#-features">Features</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-api">API</a> •
+  <a href="#-plugins">Plugins</a> •
+  <a href="#-react">React</a> •
+  <a href="#-migrating-from-v10x">Migration</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.0" alt="version" />
-  <img src="https://img.shields.io/badge/dependencies-zero-brightgreen" alt="zero dependencies" />
-  <img src="https://img.shields.io/badge/build-tsup-red" alt="build" />
-  <img src="https://img.shields.io/badge/coverage-190%20tests-success" alt="tests" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
+  <a href="https://github.com/ctrotech-tutor/ctrodb/releases"><img src="https://img.shields.io/github/v/release/ctrotech-tutor/ctrodb?style=flat&label=version&color=6366f1" alt="version" /></a>
+  <a href="https://www.npmjs.com/package/ctrodb"><img src="https://img.shields.io/badge/dependencies-zero-brightgreen?style=flat" alt="zero dependencies" /></a>
+  <a href="https://bundlephobia.com/package/ctrodb"><img src="https://img.shields.io/bundlephobia/minzip/ctrodb?style=flat&label=size&color=22c55e" alt="size" /></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/types-TypeScript%20strict-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/publish.yml?style=flat&branch=main&label=build" alt="build" /></a>
+  <img src="https://img.shields.io/badge/tests-189%20passing-success?style=flat" alt="tests" />
+  <img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat" alt="license" />
 </p>
 
 ---
 
-## Overview
-
-**ctrodb** is a reactive, client-side database built from scratch with **zero runtime dependencies**. It provides a MongoDB-like API, full TypeScript support, IndexedDB persistence, Signal-based reactivity, and an extensible plugin system.
-
-Perfect for local-first web apps, offline-capable PWAs, Electron applications, and any project that needs structured client-side data storage without the overhead of a large framework.
-
-### Features
-
-| Feature | Description |
-|---|---|
-| **Zero Dependencies** | No external libraries. Core ~25 KB minified. |
-| **Reactive** | Signal-based change propagation. Subscribe to collection or database events. |
-| **Schema Validation** | Declarative schemas with type checking, defaults, required fields, format validation (email, URL, regex), min/max constraints. |
-| **Query Engine** | Fluent builder with index-aware planning, OR groupings, sort, pagination (limit/offset), full-text search. |
-| **Proxy Models** | Transparent property access on query results. Call `.update()` and `.delete()` directly on models. |
-| **Flexible Storage** | Memory adapter (testing/Node) and IndexedDB adapter (production browsers) with auto-detect. |
-| **UUID IDs** | Collision-free IDs via `crypto.randomUUID()`. No more auto-increment conflicts across tabs. |
-| **Plugin System** | Lifecycle hooks (`onBeforeCreate`, `onAfterUpdate`, etc.) for extensibility. |
-| **Full-Text Search** | Inverted-index FTS plugin with tokenization, stop-word filtering, multi-field search. |
-| **Relations** | `has_many`, `belongs_to`, `has_one` with lazy getters and eager loading. |
-| **React Hooks** | `useQuery`, `useDoc`, `useMutation`, `DatabaseProvider` — reactive UI updates. |
-| **Universal Build** | ESM, CJS, and IIFE (CDN-ready) outputs. Works everywhere JavaScript runs. |
-| **TypeScript Strict** | Full generics, exhaustive type exports, strict mode throughout. |
+> **⚠️ Documentation site** ([ctrodb.vercel.app](https://ctrodb.vercel.app)) is currently being updated.
+> For now, this README is the single source of truth.
 
 ---
 
-## Installation
+## ✨ Features
+
+| Category | Feature | Description |
+|---|---|---|
+| **Core** | Zero Dependencies | No runtime libraries. Core ~25 KB minified. |
+| | Schema Validation | Declarative schemas with type checking, defaults, required fields, format validation (email, URL, regex), min/max constraints. |
+| | Proxy Models | Transparent property access on query results. Call `.update()` and `.delete()` directly on models. |
+| | TypeScript Strict | Full generics, exhaustive type exports, strict mode throughout. |
+| **Storage** | IndexedDB | Persistent browser storage — survives page reloads and tab closures. |
+| | Memory Adapter | In-memory store for Node.js, testing, and prototyping. Auto-detected. |
+| | UUID IDs | Collision-free IDs via `crypto.randomUUID()`. No auto-increment conflicts across tabs. |
+| **Query** | Fluent Builder | Chain `.where()`, `.sort()`, `.limit()`, `.offset()` — MongoDB-style. |
+| | Index-Aware Planner | Automatically selects the best index for each query. Falls back to `id_lookup` for direct ID access. |
+| | OR Groupings | `.orWhere()` for complex filter logic. |
+| | Pagination | `.limit()` + `.offset()` for cursor-based or page-based pagination. |
+| **Reactivity** | Signal-Based | Subscribe to collection or database-level change events. Automatic re-rendering in React. |
+| | Change Events | `create`, `update`, `delete` events with old/new record snapshots. |
+| **Plugins** | Full-Text Search | Inverted-index FTS with tokenization, stop-word filtering, and multi-field search. |
+| | Relations | `has_many`, `belongs_to`, `has_one` — lazy getters and eager loading via `.with()`. |
+| | Validation | Extensible rule engine with built-in email, URL, and no-empty-string validators. |
+| **React** | useQuery | Reactive queries that auto-refetch on data changes. Returns `{ data, loading, error }`. |
+| | useDoc | Single-document reactive fetch by ID. |
+| | useMutation | CRUD operations with loading and error state tracking. |
+| **Distribution** | Universal Build | ESM, CJS, and IIFE (CDN-ready) outputs. Works everywhere JavaScript runs. |
+| | CDN Ready | Use via `<script>` tag — no bundler required. |
+
+---
+
+## 📦 Installation
 
 ```bash
 npm install ctrodb
@@ -73,7 +84,7 @@ npm install ctrodb
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### 1. Define a schema
 
@@ -142,7 +153,7 @@ const unsub = users.onChange((event) => {
 
 ---
 
-## API
+## 📖 API
 
 ### Database
 
@@ -156,7 +167,7 @@ await db.transaction(fn)                    // Run in transaction
 db.on(callback)                             // Subscribe to all changes
 ```
 
-**`DatabaseConfig`:**
+#### DatabaseConfig
 
 | Option | Type | Default | Description |
 |---|---|---|---|
@@ -164,12 +175,11 @@ db.on(callback)                             // Subscribe to all changes
 | `adapter` | `"indexeddb" \| "memory" \| StorageAdapter` | auto-detect | Storage backend |
 | `schema` | `SchemaConfig` | — | Schema definition |
 | `plugins` | `CtroDBPlugin[]` | — | Plugins to load |
-| `logLevel` | `string` | — | Reserved for future use (currently not implemented) |
 
 ### Collection\<T\>
 
 ```typescript
-await collection.create(data)               // Insert a record
+await collection.create(data)               // Insert a record (id auto-generated)
 await collection.get(id)                    // Find by ID
 await collection.getAll()                   // Fetch all records
 await collection.update(id, changes)        // Partial update
@@ -178,6 +188,7 @@ await collection.deleteMany(ids)            // Bulk delete
 await collection.put(data)                  // Upsert (create or update)
 await collection.count()                    // Record count
 collection.query()                          // Get a QueryBuilder
+collection.with(...relations)               // Get a QueryBuilder with eager loading
 collection.onChange(callback)               // Subscribe to collection changes
 ```
 
@@ -189,7 +200,7 @@ query.orWhere((q) => q.where(...))           // OR group
 query.sort({ field: "asc" | "desc" })       // Sort
 query.limit(n)                              // Limit results
 query.offset(n)                             // Skip results
-query.search(field, term)                   // Full-text search (basic fallback)
+query.search(field, term)                   // Full-text search
 await query.fetch()                         // Execute, return models
 await query.first()                         // First result or undefined
 await query.count()                         // Count results
@@ -199,11 +210,12 @@ await query.toArray()                       // Return plain objects (no Proxy)
 ### Model\<T\>
 
 ```typescript
-model.id                                    // Record ID
+model.id                                    // Record ID (UUID string)
 model.update(changes)                       // Update this record
 model.delete()                              // Delete this record
 model.toJSON()                              // Return plain object
 // + direct property access to all fields via Proxy
+// + lazy relation getters (e.g., await post.author.first())
 ```
 
 ### Schema
@@ -229,23 +241,23 @@ const schema = new Schema({
 })
 ```
 
-**Field options:**
+#### Field Options
 
 | Option | Type | Description |
 |---|---|---|
 | `type` | `"string" \| "number" \| "boolean" \| "object" \| "array"` | Field data type |
-| `required` | `boolean` | Field must be provided |
+| `required` | `boolean` | Field must be provided at creation |
 | `default` | `unknown` | Default value if not provided |
-| `validate` | `"email" \| "url" \| RegExp \| function` | Format validation |
+| `validate` | `"email" \| "url" \| RegExp \| ((v) => boolean)` | Format validation |
 | `min` | `number` | Minimum value (number fields) |
 | `max` | `number` | Maximum value (number fields) |
 | `maxLength` | `number` | Maximum string length |
-| `items` | `FieldDefinition` | Item type for arrays |
+| `items` | `FieldDefinition` | Item type for array fields |
 | `unique` | `boolean` | Enforce uniqueness (via index) |
 
 ---
 
-## Plugins
+## 🔌 Plugins
 
 Plugins extend ctrodb through lifecycle hooks. Load them in the `Database` constructor:
 
@@ -264,21 +276,17 @@ const db = new Database({
 })
 ```
 
-### FTS Plugin
+### Full-Text Search Plugin
 
-Full-text search with inverted indexing.
+Inverted-index FTS with automatic indexing on create/update/delete.
 
-**Indexing:**
-- On create/update/delete, tokens are extracted from `searchable` fields
-- Stored in a `_ctrodb_fts` collection as token→document ID mappings
-
-**Basic search (substring matching):**
+**Basic search (substring matching) — no plugin required:**
 ```typescript
-// Case-insensitive substring search — does NOT use the FTS index
+// Case-insensitive substring search
 const results = await articles.query().search("title", "typescript").fetch()
 ```
 
-**Indexed search (tokenized AND):**
+**Indexed search (tokenized AND) — requires `ftsPlugin()`:**
 ```typescript
 import { FTSIndexer } from "ctrodb"
 
@@ -291,25 +299,34 @@ Features: tokenization, stop-word removal, case-insensitive, multi-field, automa
 
 ### Relations Plugin
 
-Lazy-loaded relation getters (built into Model) + eager loading:
+Define relationships in your schema and load them eagerly or lazily.
 
+**Schema definition:**
 ```typescript
-// Schema defines relations
 relations: {
   author: { type: "belongs_to", collection: "users", foreignKey: "userId" },
   comments: { type: "has_many", collection: "comments", foreignKey: "postId" },
 }
-
-// Lazy access (built-in, no plugin needed)
-const author = await (await post.author).first()
-
-// Eager loading (requires relationsPlugin)
-const posts = await postsCol.query().fetch()  // relations attached via plugin
 ```
+
+**Eager loading — `.with()` (built-in, no plugin needed):**
+```typescript
+const posts = await postsCol.with("author", "comments").fetch()
+// posts[0].author  — resolved user object
+// posts[0].comments — resolved comment array
+```
+
+**Lazy loading — getters (built into Model):**
+```typescript
+const author = await post.author.first()      // belongs_to
+const comments = await post.comments.fetch()  // has_many
+```
+
+> Note: `relationsPlugin()` is still required in the plugins array for the plugin system to recognize and initialize relation metadata.
 
 ### Validation Plugin
 
-Extensible validation with custom rules:
+Extensible validation with built-in and custom rules:
 
 ```typescript
 const db = new Database({
@@ -327,11 +344,11 @@ const db = new Database({
 })
 ```
 
-Built-in rules: email format, URL format, noEmptyStrings.
+**Built-in rules:** `email` format, `url` format, `noEmptyStrings` (applied to required fields only).
 
 ---
 
-## React
+## ⚛️ React
 
 ```bash
 npm install ctrodb react
@@ -375,14 +392,14 @@ function TodoList() {
 ### Hooks API
 
 | Hook | Returns | Description |
-|---|---|---|---|
+|---|---|---|
 | `useQuery<T>(name, queryFn?, deps?)` | `{ data: (Model<T> & T)[]; loading: boolean; error: Error \| null }` | Reactive query, re-fetches on changes |
 | `useDoc<T>(name, id)` | `{ data: (Model<T> & T) \| undefined; loading: boolean; error: Error \| null }` | Single document by ID |
 | `useMutation<T>(name)` | `{ create, update, delete, loading, error, reset }` | CRUD with loading/error state |
 
 ---
 
-## Examples
+## 📁 Examples
 
 | Example | Location | Description |
 |---|---|---|
@@ -392,7 +409,7 @@ function TodoList() {
 
 ---
 
-## Architecture
+## 🏗 Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -428,7 +445,7 @@ src/
 ├── schema.ts         # Schema definition and validation
 └── types.ts          # Core TypeScript interfaces
 tests/
-├── unit/             # Unit tests (14 files, 190 tests)
+├── unit/             # Unit tests (14 files, 189 tests)
 ├── benchmarks/       # Performance benchmarks (WIP)
 └── integration/      # Cross-component tests (WIP)
 examples/
@@ -438,7 +455,7 @@ examples/
 
 ---
 
-## Migrating from v1.0.x
+## 🔄 Migrating from v1.0.x
 
 ### v1.1.0 Breaking Changes
 
@@ -461,15 +478,22 @@ All records created via `Collection.create()` get a UUID string ID. Foreign key 
 + authorId: { type: "string", required: true }
 ```
 
-When creating records with explicit IDs via the adapter layer, you must provide an `id`.
-
 **3. Plugin hooks can now be async**
 
-If you implement custom plugin hooks, they may return a Promise — `runHook` now `await`s the result before passing data to the next hook.
+Custom plugin hooks may return a Promise — `runHook` now `await`s results before passing data to the next hook.
+
+**4. `Collection.create()` now requires all schema-defined fields**
+
+The TypeScript signature uses `Omit<T, "id"> & { id?: ID }` instead of `Partial<T>`. Missing required fields are caught at compile time.
+
+```diff
+- await users.create({ name: "Alice" })             // age missing — runtime OK, compile error now
++ await users.create({ name: "Alice", age: 30 })    // all fields provided
+```
 
 ---
 
-## Development
+## 💻 Development
 
 ```bash
 git clone https://github.com/ctrotech-tutor/ctrodb.git
@@ -477,7 +501,7 @@ cd ctrodb
 npm install
 
 npm run dev           # Watch mode
-npm test              # Run tests (190 tests)
+npm test              # Run tests (189 tests)
 npm run typecheck     # TypeScript check
 npm run lint          # Biome lint
 npm run build         # Build ESM + CJS + IIFE
@@ -491,7 +515,7 @@ npm run bench         # Run benchmarks
 | `npm test` | Run all tests |
 | `npm run test:watch` | Watch mode |
 | `npm run test:coverage` | Coverage report |
-| `npm run build` | Build all output formats |
+| `npm run build` | Build all output formats (ESM + CJS + IIFE + DTS) |
 | `npm run dev` | Watch build |
 | `npm run typecheck` | TypeScript type checking |
 | `npm run lint` | Biome lint |
@@ -500,7 +524,7 @@ npm run bench         # Run benchmarks
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -512,14 +536,14 @@ All contributors must follow our [Code of Conduct](CONTRIBUTING.md#code-of-condu
 
 ---
 
-## Security
+## 🔒 Security
 
 Report security vulnerabilities to **[security@ctrodb.dev](mailto:security@ctrodb.dev)**.
 See [SECURITY.md](SECURITY.md) for supported versions and disclosure process.
 
 ---
 
-## License
+## 📄 License
 
 [MIT](LICENSE) © 2026 Ctrotech
 
@@ -528,5 +552,6 @@ See [SECURITY.md](SECURITY.md) for supported versions and disclosure process.
 <p align="center">
   <a href="https://github.com/ctrotech-tutor/ctrodb">GitHub</a> •
   <a href="https://ctrodb.vercel.app">Documentation</a> •
+  <a href="https://www.npmjs.com/package/ctrodb">npm</a> •
   <a href="https://github.com/ctrotech-tutor/ctrodb/issues">Issues</a>
 </p>
