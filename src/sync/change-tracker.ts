@@ -52,6 +52,21 @@ export class ChangeTracker {
       updatedAt: now,
     }
     await this.#adapter.create(this.storeName, record as unknown as Record<string, unknown>)
+
+    // Broadcast change to other tabs (graceful fallback if BroadcastChannel unavailable)
+    try {
+      const channel = new BroadcastChannel("ctrodb:sync")
+      channel.postMessage({
+        type: "change",
+        collection,
+        recordId,
+        changeType: type,
+      })
+      channel.close()
+    } catch {
+      // BroadcastChannel unavailable (Node.js, older browsers)
+    }
+
     return id
   }
 

@@ -1,4 +1,4 @@
-import type { ID, StorageAdapter } from "../types"
+import type { ChangeEvent, ID, StorageAdapter } from "../types"
 import type { Database } from "../database"
 import { ChangeTracker } from "./change-tracker"
 import { ConflictResolverEngine } from "./conflict-resolver"
@@ -46,6 +46,12 @@ export class SyncEngine {
 
   readonly #adapter: AdapterWithMetadata
 
+  readonly #db: Database
+
+  #broadcastChannel: BroadcastChannel | null = null
+  #handleOnline: (() => void) | null = null
+  #handleOffline: (() => void) | null = null
+
   #isSyncing = false
   #isConnected = false
   #lastSyncAt: string | null = null
@@ -63,6 +69,7 @@ export class SyncEngine {
   constructor(_db: Database, config: SyncPluginConfig) {
     const adapter = _db._getAdapter() as AdapterWithMetadata
 
+    this.#db = _db
     this.#adapter = adapter
     this.#tracker = new ChangeTracker(adapter)
     this.#resolver = new ConflictResolverEngine(config.strategy, config.conflictResolver)
@@ -105,6 +112,32 @@ export class SyncEngine {
       this.#isConnected = true
     }
 
+    // ── Subscribe to cross-tab change broadcasts ──
+    try {
+      this.#broadcastChannel = new BroadcastChannel("ctrodb:sync")
+      this.#broadcastChannel.onmessage = (event: MessageEvent) => {
+        if (event.data?.type === "change") {
+          this.#emit({ phase: "push" } as { phase: SyncPhase; progress?: SyncProgress; error?: Error })
+          this.#db._emit({
+            type: event.data.changeType,
+            collection: event.data.collection,
+            recordId: event.data.recordId,
+          } as ChangeEvent)
+          this.triggerSync()
+        }
+      }
+    } catch {
+      this.#broadcastChannel = null
+    }
+
+    // ── Online/offline detection ──
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      this.#handleOnline = () => this.setConnected(true)
+      this.#handleOffline = () => this.setConnected(false)
+      window.addEventListener("online", this.#handleOnline)
+      window.addEventListener("offline", this.#handleOffline)
+    }
+
     if (this.#config.autoSync) {
       this.#startAutoSync()
     }
@@ -114,6 +147,25 @@ export class SyncEngine {
     this.#stopAutoSync()
     this.#cancelBackoff()
     this.#clearDebounce()
+
+    // ── Cleanup BroadcastChannel ──
+    if (this.#broadcastChannel) {
+      this.#broadcastChannel.onmessage = null
+      this.#broadcastChannel.close()
+      this.#broadcastChannel = null
+    }
+
+    // ── Remove online/offline listeners ──
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      if (this.#handleOnline) {
+        window.removeEventListener("online", this.#handleOnline)
+        this.#handleOnline = null
+      }
+      if (this.#handleOffline) {
+        window.removeEventListener("offline", this.#handleOffline)
+        this.#handleOffline = null
+      }
+    }
 
     if (this.#transport.disconnect) {
       try {
