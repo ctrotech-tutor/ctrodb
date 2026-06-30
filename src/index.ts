@@ -48,7 +48,7 @@ export type {
 } from "./sync/index"
 
 // Sync
-export { ChangeTracker, ConflictResolverEngine, SYNC_STORE } from "./sync/index"
+export { ChangeTracker, ConflictResolverEngine, SyncEngine, SYNC_STORE } from "./sync/index"
 export type {
   ChangeEvent,
   ChangeType,

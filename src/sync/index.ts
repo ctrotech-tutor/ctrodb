@@ -1,5 +1,6 @@
 export { ChangeTracker, SYNC_STORE } from "./change-tracker"
 export { ConflictResolverEngine } from "./conflict-resolver"
+export { SyncEngine } from "./sync-engine"
 export type {
   ConflictResolution,
   ConflictResolverFn,
