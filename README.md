@@ -2,12 +2,10 @@
   <img alt="ctrodb" src="/public/logo.png" width="400" />
 </p>
 
-<h1 align="center">ctrodb</h1>
-
 <p align="center">
   <strong>Zero-dependency, reactive, client-side database for browser and Node.js</strong>
   <br />
-  Schema-driven · Full-text search · Relations · React hooks · IndexedDB persistence
+  Schema-driven · Full-text search · Relations · Offline Sync · React hooks · IndexedDB persistence
 </p>
 
 <p align="center">
@@ -16,8 +14,8 @@
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-api">API</a> •
   <a href="#-plugins">Plugins</a> •
-  <a href="#-react">React</a> •
-  <a href="#-migrating-from-v10x">Migration</a>
+  <a href="#-sync-engine">Sync</a> •
+  <a href="#-react">React</a>
 </p>
 
 <p align="center">
@@ -26,46 +24,56 @@
   <a href="https://bundlephobia.com/package/ctrodb"><img src="https://img.shields.io/bundlephobia/minzip/ctrodb?style=flat&label=size&color=22c55e" alt="size" /></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/types-TypeScript%20strict-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" /></a>
   <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/publish.yml?style=flat&branch=main&label=build" alt="build" /></a>
-  <img src="https://img.shields.io/badge/tests-189%20passing-success?style=flat" alt="tests" />
+  <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/ci.yml?style=flat&branch=main&label=CI" alt="ci" /></a>
+  <a href="https://codecov.io/gh/ctrotech-tutor/ctrodb"><img src="https://img.shields.io/badge/tests-477%20passing-success?style=flat" alt="tests" /></a>
   <img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat" alt="license" />
 </p>
 
 ---
 
-> **⚠️ Documentation site** ([ctrodb.vercel.app](https://ctrodb.vercel.app)) is currently being updated.
+> **Documentation site** ([ctrodb.vercel.app](https://ctrodb.vercel.app)) is currently being updated.
 > For now, this README is the single source of truth.
 
 ---
 
-## ✨ Features
+## Features
 
 | Category | Feature | Description |
 |---|---|---|
-| **Core** | Zero Dependencies | No runtime libraries. Core ~25 KB minified. |
+| Core | Zero Dependencies | No runtime libraries. Core ~25 KB minified. |
 | | Schema Validation | Declarative schemas with type checking, defaults, required fields, format validation (email, URL, regex), min/max constraints. |
 | | Proxy Models | Transparent property access on query results. Call `.update()` and `.delete()` directly on models. |
 | | TypeScript Strict | Full generics, exhaustive type exports, strict mode throughout. |
-| **Storage** | IndexedDB | Persistent browser storage — survives page reloads and tab closures. |
+| Storage | IndexedDB | Persistent browser storage — survives page reloads and tab closures. |
 | | Memory Adapter | In-memory store for Node.js, testing, and prototyping. Auto-detected. |
 | | UUID IDs | Collision-free IDs via `crypto.randomUUID()`. No auto-increment conflicts across tabs. |
-| **Query** | Fluent Builder | Chain `.where()`, `.sort()`, `.limit()`, `.offset()` — MongoDB-style. |
+| Query | Fluent Builder | Chain `.where()`, `.sort()`, `.limit()`, `.offset()` — MongoDB-style. |
 | | Index-Aware Planner | Automatically selects the best index for each query. Falls back to `id_lookup` for direct ID access. |
 | | OR Groupings | `.orWhere()` for complex filter logic. |
 | | Pagination | `.limit()` + `.offset()` for cursor-based or page-based pagination. |
-| **Reactivity** | Signal-Based | Subscribe to collection or database-level change events. Automatic re-rendering in React. |
+| Reactivity | Signal-Based | Subscribe to collection or database-level change events. Automatic re-rendering in React. |
 | | Change Events | `create`, `update`, `delete` events with old/new record snapshots. |
-| **Plugins** | Full-Text Search | Inverted-index FTS with tokenization, stop-word filtering, and multi-field search. |
+| Plugins | Full-Text Search | Inverted-index FTS with tokenization, stop-word filtering, and multi-field search. |
 | | Relations | `has_many`, `belongs_to`, `has_one` — lazy getters and eager loading via `.with()`. |
 | | Validation | Extensible rule engine with built-in email, URL, and no-empty-string validators. |
-| **React** | useQuery | Reactive queries that auto-refetch on data changes. Returns `{ data, loading, error }`. |
+| React | useQuery | Reactive queries that auto-refetch on data changes. Returns `{ data, loading, error }`. |
 | | useDoc | Single-document reactive fetch by ID. |
 | | useMutation | CRUD operations with loading and error state tracking. |
-| **Distribution** | Universal Build | ESM, CJS, and IIFE (CDN-ready) outputs. Works everywhere JavaScript runs. |
+| | useSyncStatus | Sync engine connection and queue status. |
+| | useSyncQueue | Real-time queue inspection with SyncDevPanel component. |
+| Sync | Offline-First | All mutations recorded locally first; sync queue persists via `_ctrodb_sync_changes`. |
+| | Conflict Resolution | LWW (default), client-wins, server-wins, and custom resolvers. |
+| | HTTP Transport | Fetch-based with timeout, abort signals, cursor pagination. |
+| | WebSocket Transport | Request/response matching, auto-reconnect, server push. |
+| | Multi-Tab Sync | BroadcastChannel cross-tab change notification. |
+| | DevTools API | Queue inspection, retry, compaction, event log. |
+| | Reference Server | Express + WebSocket sync server in `examples/sync/server-node/`. |
+| Distribution | Universal Build | ESM, CJS, and IIFE (CDN-ready) outputs. Works everywhere JavaScript runs. |
 | | CDN Ready | Use via `<script>` tag — no bundler required. |
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install ctrodb
@@ -74,7 +82,7 @@ npm install ctrodb
 ### CDN (script tag)
 
 ```html
-<script src="https://unpkg.com/ctrodb@1.1.0/dist/index.global.js"></script>
+<script src="https://unpkg.com/ctrodb@1.3.0/dist/index.global.js"></script>
 <script>
   const { Database } = CtroDB
   const db = new Database({ name: "my-app" })
@@ -84,15 +92,16 @@ npm install ctrodb
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Define a schema
 
 ```typescript
-import { Database } from "ctrodb"
+import { Database, syncPlugin, HttpTransport } from "ctrodb"
 
 const db = new Database({
   name: "my-app",
+  plugins: [syncPlugin({ transport: new HttpTransport({ url: "https://api.example.com/sync" }) })],
   adapter: "indexeddb", // "memory" for Node/testing
   schema: {
     version: 1,
@@ -153,7 +162,7 @@ const unsub = users.onChange((event) => {
 
 ---
 
-## 📖 API
+## API
 
 ### Database
 
@@ -257,7 +266,7 @@ const schema = new Schema({
 
 ---
 
-## 🔌 Plugins
+## Plugins
 
 Plugins extend ctrodb through lifecycle hooks. Load them in the `Database` constructor:
 
@@ -348,7 +357,128 @@ const db = new Database({
 
 ---
 
-## ⚛️ React
+## Sync Engine
+
+ctrodb's sync engine provides **offline-first** synchronization with any backend. All mutations are recorded locally first; the sync queue persists via `_ctrodb_sync_changes`. Conflicts are resolved deterministically.
+
+### Quick Start
+
+```typescript
+import { Database, syncPlugin, HttpTransport } from "ctrodb"
+
+const db = new Database({
+  name: "my-app",
+  schema: { version: 1, collections: { todos: { fields: { text: { type: "string" } } } } },
+  plugins: [
+    syncPlugin({
+      transport: new HttpTransport({ url: "https://my-api.com/sync" }),
+      autoSync: { intervalMs: 30000 },
+    }),
+  ],
+})
+
+await db.connect()
+
+// Manual sync
+await db.sync()
+
+// Listen for sync events
+db.onSync((event) => {
+  console.log(event.phase, event.progress)
+})
+```
+
+### Plugin Config
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `transport` | `SyncTransport` | — | HTTP or WebSocket transport |
+| `strategy` | `"lww" \| "client-wins" \| "server-wins" \| "custom"` | `"lww"` | Conflict resolution strategy |
+| `autoSync` | `boolean \| { intervalMs?, debounceMs? }` | `false` | Enable automatic periodic sync |
+| `collections` | `string[]` | all | Collections to sync |
+| `pushBatchSize` | `number` | `50` | Changes per push request |
+| `pullBatchSize` | `number` | `100` | Changes per pull request |
+
+### Transports
+
+**HTTP Transport** — fetch-based with timeout and abort:
+
+```typescript
+import { HttpTransport } from "ctrodb"
+
+const transport = new HttpTransport({
+  url: "https://api.example.com/sync",
+  timeoutMs: 10000,
+  headers: { Authorization: "Bearer token" },
+})
+```
+
+**WebSocket Transport** — real-time with auto-reconnect:
+
+```typescript
+import { WsTransport } from "ctrodb"
+
+const transport = new WsTransport({
+  url: "wss://api.example.com/sync",
+  reconnectIntervalMs: 3000,
+  maxReconnectAttempts: 10,
+})
+
+transport.onServerPush((changes) => {
+  console.log("Real-time update:", changes)
+})
+```
+
+### React Hooks
+
+```tsx
+import { useSyncStatus, useSync, useSyncQueue, SyncDevPanel } from "ctrodb/react"
+
+function SyncStatus() {
+  const status = useSyncStatus()
+  const sync = useSync()
+
+  return (
+    <div>
+      <span>Connected: {status.isConnected ? "Yes" : "No"}</span>
+      <span>Pending: {status.pendingChanges}</span>
+      <button onClick={sync}>Sync Now</button>
+    </div>
+  )
+}
+
+function AdminPanel() {
+  return <SyncDevPanel db={db} />
+}
+```
+
+### DevTools API
+
+```typescript
+import { inspectSyncQueue, retryFailedSync, compactSyncQueue } from "ctrodb"
+
+const snapshot = await inspectSyncQueue(db)
+console.log(snapshot.stats) // { total, pending, syncing, committed, failed }
+
+await retryFailedSync(db)    // Retry all failed changes
+await compactSyncQueue(db)   // Deduplicate per (collection, recordId)
+```
+
+### Reference Server
+
+A complete Node.js sync server is available in `examples/sync/server-node/`:
+
+```bash
+cd examples/sync/server-node
+npm install
+npm run dev
+```
+
+Includes Express + WebSocket, push/pull routes, conflict detection, cursor pagination, CORS, and graceful shutdown.
+
+---
+
+## React
 
 ```bash
 npm install ctrodb react
@@ -396,35 +526,45 @@ function TodoList() {
 | `useQuery<T>(name, queryFn?, deps?)` | `{ data: (Model<T> & T)[]; loading: boolean; error: Error \| null }` | Reactive query, re-fetches on changes |
 | `useDoc<T>(name, id)` | `{ data: (Model<T> & T) \| undefined; loading: boolean; error: Error \| null }` | Single document by ID |
 | `useMutation<T>(name)` | `{ create, update, delete, loading, error, reset }` | CRUD with loading/error state |
+| `useSyncStatus()` | `SyncStatus` | Poll + event-driven sync status (connected, pending/failed changes) |
+| `useSync(callback?)` | `() => Promise<void>` | Trigger manual sync + optional event listener |
+| `useSyncQueue(db)` | `SyncQueueSnapshot` | Real-time sync queue for dev tools |
+| `<SyncDevPanel db={db} />` | Component | Dark-themed sync admin panel with stats, retry, event log |
 
 ---
 
-## 📁 Examples
+## Examples
 
 | Example | Location | Description |
 |---|---|---|
 | CDN Todo App | [`examples/cdn/index.html`](examples/cdn/index.html) | Browser todo app via `<script>` tag |
 | Node.js CLI | [`examples/node/index.mjs`](examples/node/index.mjs) | CRUD, queries, FTS in Node.js |
 | React Integration | [`tests/unit/react.test.tsx`](tests/unit/react.test.tsx) | Hook API usage patterns |
+| Sync Reference Server | [`examples/sync/server-node/`](examples/sync/server-node/) | Express + WebSocket sync server |
+| Sync Supabase Guide | [`examples/sync/server-supabase/README.md`](examples/sync/server-supabase/README.md) | BaaS integration patterns |
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│            User Code / Framework             │
-├─────────────────────────────────────────────┤
-│    Database       Collection     Plugin API  │
-├─────────────────────────────────────────────┤
-│    QueryBuilder   QueryPlanner              │
-│    QueryExecutor  Schema/Model              │
-├─────────────────────────────────────────────┤
-│    MemoryAdapter  IndexedDBAdapter          │
-│    (Node/testing) (production browser)      │
-├─────────────────────────────────────────────┤
-│    Reactivity System (Signal-based)         │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│            User Code / Framework              │
+├──────────────────────────────────────────────┤
+│    Database       Collection     Plugin API   │
+├──────────────────────────────────────────────┤
+│    QueryBuilder   QueryPlanner               │
+│    QueryExecutor  Schema/Model               │
+├──────────────────────────────────────────────┤
+│    MemoryAdapter  IndexedDBAdapter           │
+│    (Node/testing) (production browser)       │
+├──────────────────────────────────────────────┤
+│    SyncEngine     ChangeTracker              │
+│    ConflictResolver  SyncTransport           │
+│    HttpTransport  WsTransport                │
+├──────────────────────────────────────────────┤
+│    Reactivity System (Signal-based)          │
+└──────────────────────────────────────────────┘
 ```
 
 ### Project Structure
@@ -436,26 +576,31 @@ src/
 ├── plugins/          # FTS, Relations, Validation plugins
 ├── query/            # Query engine (builder, planner, executor)
 ├── reactive/         # Signal reactivity system
+├── sync/             # Sync engine (change tracker, conflict resolver,
+│                     #   engine, HTTP/WS transports, devtools, validation)
 ├── utils/            # Plugin hook runner
 ├── collection.ts     # Collection CRUD + change events
 ├── database.ts       # Database entry point
 ├── errors.ts         # Error classes
 ├── index.ts          # Public API barrel exports
-├── react.ts          # React hooks (useQuery, useDoc, useMutation)
+├── react.ts          # React hooks (useQuery, useDoc, useMutation,
+│                     #   useSyncStatus, useSync, useSyncQueue)
 ├── schema.ts         # Schema definition and validation
 └── types.ts          # Core TypeScript interfaces
 tests/
-├── unit/             # Unit tests (14 files, 189 tests)
+├── unit/             # Unit tests (25 files, 477 tests)
 ├── benchmarks/       # Performance benchmarks (WIP)
-└── integration/      # Cross-component tests (WIP)
+├── integration/      # Cross-component tests
+└── e2e/              # End-to-end sync tests
 examples/
 ├── cdn/              # Browser CDN example
-└── node/             # Node.js CLI example
+├── node/             # Node.js CLI example
+└── sync/             # Sync reference server + integration guides
 ```
 
 ---
 
-## 🔄 Migrating from v1.0.x
+## Migration from v1.0.x
 
 ### v1.1.0 Breaking Changes
 
@@ -493,7 +638,7 @@ The TypeScript signature uses `Omit<T, "id"> & { id?: ID }` instead of `Partial<
 
 ---
 
-## 💻 Development
+## Development
 
 ```bash
 git clone https://github.com/ctrotech-tutor/ctrodb.git
@@ -501,7 +646,7 @@ cd ctrodb
 npm install
 
 npm run dev           # Watch mode
-npm test              # Run tests (189 tests)
+npm test              # Run tests (477 tests)
 npm run typecheck     # TypeScript check
 npm run lint          # Biome lint
 npm run build         # Build ESM + CJS + IIFE
@@ -524,7 +669,7 @@ npm run bench         # Run benchmarks
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -536,14 +681,14 @@ All contributors must follow our [Code of Conduct](CONTRIBUTING.md#code-of-condu
 
 ---
 
-## 🔒 Security
+## Security
 
 Report security vulnerabilities to **[security@ctrodb.dev](mailto:security@ctrodb.dev)**.
 See [SECURITY.md](SECURITY.md) for supported versions and disclosure process.
 
 ---
 
-## 📄 License
+## License
 
 [MIT](LICENSE) © 2026 Ctrotech
 

@@ -24,6 +24,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
+      - name: Install esbuild (pre-warm binary)
+        run: npx --yes esbuild --version || true
+
       - run: npm ci
 
       - run: npm run typecheck

@@ -32,7 +32,11 @@ jobs:
           node-version: '20' # Use a recent Long-Term Support (LTS) version of Node.js
           cache: 'npm' # Cache npm dependencies for faster runs
 
-      # Step 3: Installs the project dependencies.
+      # Step 3: Pre-warm esbuild binary to avoid ETXTBSY race.
+      - name: Install esbuild (pre-warm binary)
+        run: npx --yes esbuild --version || true
+
+      # Step 4: Installs the project dependencies.
       - name: Install dependencies
         run: npm install
 
