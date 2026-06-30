@@ -55,23 +55,28 @@ export class HttpTransport implements SyncTransport {
   async push(changes: SyncChangeRecord[], options?: PushOptions): Promise<SyncPushResult> {
     const signal = this.#mergeSignals(options?.signal)
 
-    const response = await fetch(`${this.#config.url}/push`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...this.#config.headers,
-      },
-      body: JSON.stringify({ changes }),
-      signal,
-      ...this.#config.fetchOptions,
-    })
+    try {
+      const response = await fetch(`${this.#config.url}/push`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.#config.headers,
+        },
+        body: JSON.stringify({ changes }),
+        signal,
+        ...this.#config.fetchOptions,
+      })
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "Unknown error")
-      throw new Error(`Sync push failed (${response.status}): ${text}`)
+      if (!response.ok) {
+        const text = await response.text().catch(() => "Unknown error")
+        throw new Error(`Sync push failed (${response.status}): ${text}`)
+      }
+
+      return response.json() as Promise<SyncPushResult>
+    } catch (error) {
+      this.#connected = false
+      throw error
     }
-
-    return response.json() as Promise<SyncPushResult>
   }
 
   async pull(options?: PullOptions): Promise<SyncPullResult> {
@@ -96,23 +101,28 @@ export class HttpTransport implements SyncTransport {
 
     const signal = this.#mergeSignals(options?.signal)
 
-    const response = await fetch(url, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...this.#config.headers,
-      },
-      body: method === "POST" ? JSON.stringify(body) : undefined,
-      signal,
-      ...this.#config.fetchOptions,
-    })
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...this.#config.headers,
+        },
+        body: method === "POST" ? JSON.stringify(body) : undefined,
+        signal,
+        ...this.#config.fetchOptions,
+      })
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "Unknown error")
-      throw new Error(`Sync pull failed (${response.status}): ${text}`)
+      if (!response.ok) {
+        const text = await response.text().catch(() => "Unknown error")
+        throw new Error(`Sync pull failed (${response.status}): ${text}`)
+      }
+
+      return response.json() as Promise<SyncPullResult>
+    } catch (error) {
+      this.#connected = false
+      throw error
     }
-
-    return response.json() as Promise<SyncPullResult>
   }
 
   #mergeSignals(externalSignal?: AbortSignal): AbortSignal | undefined {

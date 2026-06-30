@@ -22,6 +22,8 @@ const DEFAULT_INTERVAL_MS = 30000
 const DEFAULT_DEBOUNCE_MS = 500
 const DEFAULT_MAX_BACKOFF_MS = 300000
 const INITIAL_BACKOFF_MS = 1000
+const MAX_PULL_PAGES = 1000
+const CIRCUIT_BREAKER_THRESHOLD = 50
 
 type AdapterWithMetadata = StorageAdapter & {
   getMetadata(key: string): Promise<unknown>
@@ -65,6 +67,10 @@ export class SyncEngine {
   #abortController: AbortController | null = null
 
   readonly #eventCallbacks: Set<(event: SyncEvent) => void> = new Set()
+
+  #consecutiveFailures = 0
+  #cachedPendingCount = 0
+  #cachedFailedCount = 0
 
   constructor(_db: Database, config: SyncPluginConfig) {
     const adapter = _db._getAdapter() as AdapterWithMetadata
@@ -184,18 +190,25 @@ export class SyncEngine {
       isSyncing: this.#isSyncing,
       isConnected: this.#isConnected,
       lastSyncAt: this.#lastSyncAt,
-      pendingChanges: 0,
-      failedChanges: 0,
+      pendingChanges: this.#cachedPendingCount,
+      failedChanges: this.#cachedFailedCount,
       lastError: this.#lastError,
     }
   }
 
   async getPendingCount(): Promise<number> {
-    return this.#tracker.countPending()
+    this.#cachedPendingCount = await this.#tracker.countPending()
+    return this.#cachedPendingCount
   }
 
   async getFailedCount(): Promise<number> {
-    return this.#tracker.countByStatus("failed")
+    this.#cachedFailedCount = await this.#tracker.countByStatus("failed")
+    return this.#cachedFailedCount
+  }
+
+  async #refreshCounts(): Promise<void> {
+    this.#cachedPendingCount = await this.#tracker.countPending()
+    this.#cachedFailedCount = await this.#tracker.countByStatus("failed")
   }
 
   // ── Main sync cycle ──
@@ -231,6 +244,7 @@ export class SyncEngine {
       this.#lastSyncAt = new Date().toISOString()
       this.#lastError = null
       this.#backoffDelay = INITIAL_BACKOFF_MS
+      this.#consecutiveFailures = 0
 
       await this.#adapter.setMetadata("sync:lastSyncAt", this.#lastSyncAt)
       if (this.#lastPullCursor) {
@@ -239,16 +253,27 @@ export class SyncEngine {
 
       await this.#tracker.removeCommitted()
 
+      await this.#refreshCounts()
+
       this.#emit({ phase: "complete", progress: total })
     } catch (error) {
-      this.#lastError = (error as Error).message ?? "Unknown sync error"
+      const err = error as Error
+
+      // Don't treat user-cancelled sync (AbortError) as a failure
+      if (err.name === "AbortError") {
+        this.#emit({ phase: "error", error: err })
+        return
+      }
+
+      this.#lastError = err.message ?? "Unknown sync error"
+      this.#consecutiveFailures++
 
       this.#emit({
         phase: "error",
-        error: error as Error,
+        error: err,
       })
 
-      if (this.#config.autoSync) {
+      if (this.#config.autoSync && this.#consecutiveFailures < CIRCUIT_BREAKER_THRESHOLD) {
         this.#scheduleBackoff()
       }
     } finally {
@@ -376,10 +401,17 @@ export class SyncEngine {
     let hasMore = true
     let cursor = this.#lastPullCursor
     let lastCursor = cursor
+    let pages = 0
 
     while (hasMore) {
       if (signal.aborted) {
         throw new DOMException("Sync aborted", "AbortError")
+      }
+
+      if (pages >= MAX_PULL_PAGES) {
+        throw new Error(
+          `Pull exceeded max pages (${MAX_PULL_PAGES}). Possible server infinite loop.`,
+        )
       }
 
       const result: SyncPullResult = await this.#transport.pull({
@@ -398,6 +430,7 @@ export class SyncEngine {
       lastCursor = result.cursor ?? lastCursor
       cursor = result.cursor
       hasMore = result.hasMore && result.changes.length > 0
+      pages++
     }
 
     this.#lastPullCursor = lastCursor

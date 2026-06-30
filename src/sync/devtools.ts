@@ -127,8 +127,17 @@ export async function compactSyncQueue(db: Database): Promise<number> {
       // Sort descending by timestamp — keep newest
       changes.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       for (let i = 1; i < changes.length; i++) {
-        await adapter.delete(SYNC_STORE, changes[i]!.id)
-        removed++
+        const candidate = changes[i]
+        if (!candidate) continue
+        // Re-fetch to ensure record is still pending/failed (not syncing/committed)
+        const current = (await adapter.findById(
+          SYNC_STORE,
+          candidate.id,
+        )) as SyncChangeRecord | undefined
+        if (current && (current.status === "pending" || current.status === "failed")) {
+          await adapter.delete(SYNC_STORE, candidate.id)
+          removed++
+        }
       }
     }
   }

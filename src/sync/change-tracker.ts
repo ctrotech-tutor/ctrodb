@@ -32,10 +32,12 @@ export class ChangeTracker {
     data: Record<string, unknown> | null,
     prevData?: Record<string, unknown> | null,
   ): Promise<string> {
-    const id =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    let id: string
+    try {
+      id = crypto.randomUUID()
+    } catch {
+      id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }
     const now = new Date().toISOString()
     const record: SyncChangeRecord = {
       id,
@@ -84,11 +86,26 @@ export class ChangeTracker {
 
   async markSyncing(ids: string[]): Promise<void> {
     const now = new Date().toISOString()
-    for (const id of ids) {
-      await this.#adapter.update(this.storeName, id, {
-        status: "syncing",
-        updatedAt: now,
-      } as Record<string, unknown>)
+    const done: string[] = []
+    try {
+      for (const id of ids) {
+        await this.#adapter.update(this.storeName, id, {
+          status: "syncing",
+          updatedAt: now,
+        } as Record<string, unknown>)
+        done.push(id)
+      }
+    } catch (error) {
+      // Rollback already-marked IDs on partial failure
+      for (const id of done) {
+        await this.#adapter
+          .update(this.storeName, id, {
+            status: "pending",
+            updatedAt: new Date().toISOString(),
+          } as Record<string, unknown>)
+          .catch(() => {})
+      }
+      throw error
     }
   }
 
