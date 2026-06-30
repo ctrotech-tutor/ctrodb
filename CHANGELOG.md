@@ -2,6 +2,13 @@
 
 All notable changes to ctrodb will be documented in this file.
 
+## [1.3.1] - 2026-06-30
+
+### Fixed
+- Biome lint errors across 16 files (noExplicitAny, noBannedTypes, noUselessThisAlias,
+  useExponentiationOperator, useExhaustiveDependencies, useButtonType)
+- TypeScript DTS build failure from Collection<T> invariance in #collections map
+
 ## [1.0.0] - 2026-06-17
 
 ### Added
