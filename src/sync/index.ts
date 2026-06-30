@@ -2,6 +2,7 @@ export { ChangeTracker, SYNC_STORE } from "./change-tracker"
 export { ConflictResolverEngine } from "./conflict-resolver"
 export { HttpTransport } from "./http-transport"
 export { SyncEngine } from "./sync-engine"
+export { syncPlugin } from "./sync-plugin"
 export { WsTransport } from "./ws-transport"
 export type {
   ConflictResolution,

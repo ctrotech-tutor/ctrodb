@@ -56,6 +56,7 @@ export {
   HttpTransport,
   SyncEngine,
   SYNC_STORE,
+  syncPlugin,
   WsTransport,
 } from "./sync/index"
 export type {
