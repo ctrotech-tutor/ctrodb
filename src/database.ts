@@ -118,7 +118,7 @@ export class Database {
         this.#executor,
         this.#plugins,
       )
-      this.#collections.set(name, col)
+      this.#collections.set(name, col as Collection<Record<string, unknown>>)
 
       for (const plugin of this.#plugins) {
         if (plugin.onCollectionInit) {
