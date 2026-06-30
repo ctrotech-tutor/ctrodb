@@ -39,7 +39,7 @@ export async function runHook(
     } else if (hookName === "onBeforeDelete") {
       await (hook as (collection: string, id: unknown) => void)(args[0] as string, args[1])
     } else {
-      await (hook as (...args: never) => unknown)(...args)
+      await (hook as (...args: unknown[]) => unknown)(...args)
     }
   }
 
