@@ -1,9 +1,25 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import React from "react"
 import { Database } from "../../src/database"
-import { useQuery, useDoc, useMutation, DatabaseProvider } from "../../src/react"
+import {
+  useQuery,
+  useDoc,
+  useMutation,
+  useSyncStatus,
+  useSync,
+  DatabaseProvider,
+} from "../../src/react"
+import { syncPlugin } from "../../src/sync/sync-plugin"
+import type {
+  SyncChangeRecord,
+  SyncPullResult,
+  SyncPushResult,
+  SyncTransport,
+  PushOptions,
+  PullOptions,
+} from "../../src/sync/types"
 
 const testSchema = {
   version: 1,
@@ -183,5 +199,161 @@ describe("DatabaseProvider", () => {
     expect(result.current).toHaveProperty("data")
     expect(result.current).toHaveProperty("loading")
     expect(result.current).toHaveProperty("error")
+  })
+})
+
+// ── Mock Sync Transport ──
+
+class MockSyncTransport implements SyncTransport {
+  readonly name = "mock-sync"
+  pushResult: SyncPushResult = { accepted: [], conflicts: [], errors: [] }
+  pullResult: SyncPullResult = { changes: [], cursor: null, hasMore: false }
+
+  async push(_changes: SyncChangeRecord[], _options?: PushOptions): Promise<SyncPushResult> {
+    return this.pushResult
+  }
+
+  async pull(_options?: PullOptions): Promise<SyncPullResult> {
+    return this.pullResult
+  }
+
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {}
+  isConnected(): boolean {
+    return true
+  }
+}
+
+// ── Sync Hooks Tests ──
+
+describe("useSyncStatus", () => {
+  it("returns defaults when no sync plugin registered", async () => {
+    const { result } = renderHook(() => useSyncStatus(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.isSyncing).toBe(false)
+      expect(result.current.isConnected).toBe(false)
+    })
+
+    expect(result.current.pendingChanges).toBe(0)
+    expect(result.current.failedChanges).toBe(0)
+    expect(result.current.lastSyncAt).toBeNull()
+    expect(result.current.lastError).toBeNull()
+  })
+})
+
+describe("useSyncStatus (with sync plugin)", () => {
+  let syncDb: Database
+  let transport: MockSyncTransport
+
+  function syncWrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(DatabaseProvider, { db: syncDb, children })
+  }
+
+  beforeEach(async () => {
+    transport = new MockSyncTransport()
+    const plugin = syncPlugin({ transport, strategy: "lww", autoSync: false })
+    syncDb = new Database({
+      name: "sync_hooks_test",
+      adapter: "memory",
+      schema: {
+        version: 1,
+        collections: {
+          items: {
+            fields: { label: { type: "string" } },
+          },
+        },
+      },
+      plugins: [plugin],
+    })
+    await syncDb.connect()
+    const engine = (syncDb.plugin("sync") as { _engine: { init(): Promise<void> } })._engine
+    await engine.init()
+  })
+
+  afterEach(async () => {
+    await syncDb.disconnect()
+  })
+
+  it("returns initial sync status from engine", async () => {
+    const { result } = renderHook(() => useSyncStatus(), { wrapper: syncWrapper })
+
+    await waitFor(() => {
+      expect(result.current.isSyncing).toBe(false)
+      expect(result.current.isConnected).toBe(true)
+    })
+
+    expect(result.current.lastError).toBeNull()
+    expect(typeof result.current.pendingChanges).toBe("number")
+    expect(typeof result.current.failedChanges).toBe("number")
+  })
+})
+
+describe("useSync", () => {
+  let syncDb: Database
+  let transport: MockSyncTransport
+
+  function syncWrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(DatabaseProvider, { db: syncDb, children })
+  }
+
+  beforeEach(async () => {
+    transport = new MockSyncTransport()
+    const plugin = syncPlugin({ transport, strategy: "lww", autoSync: false })
+    syncDb = new Database({
+      name: "sync_hooks_test2",
+      adapter: "memory",
+      schema: {
+        version: 1,
+        collections: {
+          items: {
+            fields: { label: { type: "string" } },
+          },
+        },
+      },
+      plugins: [plugin],
+    })
+    await syncDb.connect()
+    const engine = (syncDb.plugin("sync") as { _engine: { init(): Promise<void> } })._engine
+    await engine.init()
+  })
+
+  afterEach(async () => {
+    await syncDb.disconnect()
+  })
+
+  it("returns sync function and status", () => {
+    const { result } = renderHook(() => useSync(), { wrapper: syncWrapper })
+
+    expect(typeof result.current.sync).toBe("function")
+    expect(result.current.status).toBeDefined()
+    expect(typeof result.current.status.isSyncing).toBe("boolean")
+  })
+
+  it("sync function delegates to db.sync()", async () => {
+    const spy = vi.spyOn(syncDb, "sync")
+
+    const { result } = renderHook(() => useSync(), { wrapper: syncWrapper })
+
+    await act(async () => {
+      await result.current.sync()
+    })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it("calls event callback when sync events fire", async () => {
+    const callback = vi.fn()
+
+    renderHook(() => useSync(callback), { wrapper: syncWrapper })
+
+    await act(async () => {
+      await syncDb.sync()
+    })
+
+    expect(callback).toHaveBeenCalled()
+    const event = callback.mock.calls[0]![0]
+    expect(event.type).toBe("sync")
   })
 })

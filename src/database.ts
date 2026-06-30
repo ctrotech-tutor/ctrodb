@@ -170,6 +170,26 @@ export class Database {
     throw new Error("Sync plugin not registered or not initialized")
   }
 
+  async getPendingCount(): Promise<number> {
+    const p = this.plugin("sync") as
+      | { _engine?: { getPendingCount(): Promise<number> } }
+      | undefined
+    if (p?._engine?.getPendingCount) {
+      return p._engine.getPendingCount()
+    }
+    return 0
+  }
+
+  async getFailedCount(): Promise<number> {
+    const p = this.plugin("sync") as
+      | { _engine?: { getFailedCount(): Promise<number> } }
+      | undefined
+    if (p?._engine?.getFailedCount) {
+      return p._engine.getFailedCount()
+    }
+    return 0
+  }
+
   _getSchema(): Schema | null {
     return this.#schema
   }
