@@ -80,19 +80,19 @@ export class HttpTransport implements SyncTransport {
 
     const params: string[] = []
 
+    const body: Record<string, unknown> = {}
     if (options?.cursor) {
       params.push(`cursor=${encodeURIComponent(options.cursor)}`)
+      body.cursor = options.cursor
     }
-
-    const url = params.length > 0 ? `${baseUrl}/pull?${params.join("&")}` : `${baseUrl}/pull`
-
-    const body: Record<string, unknown> = {}
     if (options?.collections && options.collections.length > 0) {
       body.collections = options.collections
     }
     if (options?.batchSize) {
       body.batchSize = options.batchSize
     }
+
+    const url = params.length > 0 ? `${baseUrl}/pull?${params.join("&")}` : `${baseUrl}/pull`
 
     const signal = this.#mergeSignals(options?.signal)
 

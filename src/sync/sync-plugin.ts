@@ -15,10 +15,11 @@ export function syncPlugin(
     version: "1.0.0",
     storeNames: [SYNC_STORE],
 
-    onDatabaseInit(db: Database) {
+    async onDatabaseInit(db: Database) {
       tracker = new ChangeTracker(db._getAdapter())
       engine = new SyncEngine(db, config)
       plugin._engine = engine
+      await engine.init()
     },
 
     onCollectionInit() {
