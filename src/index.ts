@@ -31,6 +31,7 @@ export type {
   ConflictResolution,
   ConflictResolverFn,
   ConflictStrategy,
+  HttpTransportConfig,
   PullOptions,
   PushOptions,
   SyncChangeRecord,
@@ -48,7 +49,13 @@ export type {
 } from "./sync/index"
 
 // Sync
-export { ChangeTracker, ConflictResolverEngine, SyncEngine, SYNC_STORE } from "./sync/index"
+export {
+  ChangeTracker,
+  ConflictResolverEngine,
+  HttpTransport,
+  SyncEngine,
+  SYNC_STORE,
+} from "./sync/index"
 export type {
   ChangeEvent,
   ChangeType,
