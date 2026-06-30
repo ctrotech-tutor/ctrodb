@@ -14,10 +14,7 @@ export function syncPlugin(config: SyncPluginConfig): CtroDBPlugin & { _engine?:
     storeNames: [
       {
         name: SYNC_STORE,
-        indexes: [
-          { field: "status" },
-          { field: "timestamp" },
-        ],
+        indexes: [{ field: "status" }, { field: "timestamp" }],
       },
     ],
 

@@ -48,10 +48,18 @@ export async function inspectSyncQueue(db: Database): Promise<SyncQueueSnapshot>
   const adapter: StorageAdapter = db._getAdapter()
 
   const [pending, syncing, committed, failed] = await Promise.all([
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<SyncChangeRecord[]>,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("syncing"), []) as Promise<SyncChangeRecord[]>,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("committed"), []) as Promise<SyncChangeRecord[]>,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<SyncChangeRecord[]>,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<
+      SyncChangeRecord[]
+    >,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("syncing"), []) as Promise<
+      SyncChangeRecord[]
+    >,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("committed"), []) as Promise<
+      SyncChangeRecord[]
+    >,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<
+      SyncChangeRecord[]
+    >,
   ])
 
   const stats: SyncQueueStats = {
@@ -98,8 +106,12 @@ export async function compactSyncQueue(db: Database): Promise<number> {
 
   const adapter: StorageAdapter = db._getAdapter()
   const [pendingArr, failedArr] = await Promise.all([
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<SyncChangeRecord[]>,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<SyncChangeRecord[]>,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<
+      SyncChangeRecord[]
+    >,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<
+      SyncChangeRecord[]
+    >,
   ])
   const pending = [...pendingArr, ...failedArr]
 

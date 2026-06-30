@@ -2,6 +2,26 @@
 
 All notable changes to ctrodb will be documented in this file.
 
+## [1.4.0] - 2026-06-30
+
+### Added
+- `PluginStoreConfig` type system — plugins can now declare indexes on their object stores
+- IDB migration handler creates `status` + `timestamp` indexes on `_ctrodb_sync_changes` store
+- `PluginStoreName` union type (`string | PluginStoreConfig`) for backward-compatible store configs
+
+### Changed
+- `ChangeTracker.getPending()` now uses `adapter.scanIndex()` for pending + failed queries in parallel
+- `ChangeTracker.countByStatus()`, `countPending()`, `removeCommitted()`, `getFailed()` use
+  `scanIndex()` instead of loading the entire queue via `findAll()` + JS filter
+- `inspectSyncQueue()` performs 4 parallel `scanIndex` calls (one per status) instead of `findAll` + 4 filters
+- `compactSyncQueue()` uses parallel `scanIndex` for pending + failed records only
+- Only changes with "syncing" status are loaded during `init()`, not the full queue
+
+### Performance
+- Queue queries now load only status-filtered records via IDB native indexes (typically <10% of total queue)
+- `removeCommitted()` loads only committed records instead of the entire queue
+- `countByStatus()` increments via index-based queries instead of full table scan
+
 ## [1.3.1] - 2026-06-30
 
 ### Fixed

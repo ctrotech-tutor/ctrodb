@@ -82,7 +82,7 @@ npm install ctrodb
 ### CDN (script tag)
 
 ```html
-<script src="https://unpkg.com/ctrodb@1.3.0/dist/index.global.js"></script>
+<script src="https://unpkg.com/ctrodb@1.4.0/dist/index.global.js"></script>
 <script>
   const { Database } = CtroDB
   const db = new Database({ name: "my-app" })
