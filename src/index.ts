@@ -1,4 +1,4 @@
-export const VERSION = "1.0.1"
+export const VERSION = "1.3.0"
 
 export { createAdapter, IndexedDBAdapter, MemoryAdapter } from "./adapter/index"
 export { Collection } from "./collection"
@@ -27,6 +27,50 @@ export {
 export { QueryBuilder, QueryExecutor, QueryPlanner } from "./query/index"
 export { Signal } from "./reactive/signal"
 export { Schema } from "./schema"
+export type {
+  ConflictResolution,
+  ConflictResolverFn,
+  ConflictStrategy,
+  HttpTransportConfig,
+  PullOptions,
+  PushOptions,
+  WsTransportConfig,
+  SyncChangeRecord,
+  SyncChangeStatus,
+  SyncChangeType,
+  SyncConflict,
+  SyncEvent,
+  SyncEventLogEntry,
+  SyncPhase,
+  SyncPluginConfig,
+  SyncProgress,
+  SyncPullResult,
+  SyncPushResult,
+  SyncQueueSnapshot,
+  SyncQueueStats,
+  SyncStatus,
+  SyncTransport,
+} from "./sync/index"
+
+// Sync
+export {
+  ChangeTracker,
+  SyncResponseValidationError,
+  validatePullResult,
+  validatePushResult,
+  clearCommittedSync,
+  compactSyncQueue,
+  ConflictResolverEngine,
+  createSyncEventLog,
+  getSyncStats,
+  HttpTransport,
+  inspectSyncQueue,
+  retryFailedSync,
+  SyncEngine,
+  SYNC_STORE,
+  syncPlugin,
+  WsTransport,
+} from "./sync/index"
 export type {
   ChangeEvent,
   ChangeType,

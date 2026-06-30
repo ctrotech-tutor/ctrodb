@@ -12,6 +12,7 @@ import type {
   StorageAdapter,
   TransactionContext,
 } from "./types"
+import type { SyncEvent, SyncStatus } from "./sync/types"
 
 export interface DatabaseConfig {
   name?: string
@@ -86,7 +87,7 @@ export class Database {
 
     for (const plugin of this.#plugins) {
       if (plugin.onDatabaseInit) {
-        plugin.onDatabaseInit(this)
+        await plugin.onDatabaseInit(this)
       }
     }
   }
@@ -137,6 +138,56 @@ export class Database {
     return this.#changeSignal.subscribe((event) => {
       if (event) callback(event)
     })
+  }
+
+  plugin(name: string): CtroDBPlugin | undefined {
+    return this.#plugins.find((p) => p.name === name)
+  }
+
+  async sync(): Promise<void> {
+    const p = this.plugin("sync") as { _engine?: { sync(): Promise<void> } } | undefined
+    if (p?._engine?.sync) {
+      return p._engine.sync()
+    }
+    throw new Error("Sync plugin not registered or not initialized")
+  }
+
+  onSync(callback: (event: SyncEvent) => void): () => void {
+    const p = this.plugin("sync") as
+      | { _engine?: { onEvent(cb: (event: SyncEvent) => void): () => void } }
+      | undefined
+    if (p?._engine?.onEvent) {
+      return p._engine.onEvent(callback)
+    }
+    throw new Error("Sync plugin not registered or not initialized")
+  }
+
+  get syncStatus(): SyncStatus {
+    const p = this.plugin("sync") as { _engine?: { status: SyncStatus } } | undefined
+    if (p?._engine?.status) {
+      return p._engine.status
+    }
+    throw new Error("Sync plugin not registered or not initialized")
+  }
+
+  async getPendingCount(): Promise<number> {
+    const p = this.plugin("sync") as
+      | { _engine?: { getPendingCount(): Promise<number> } }
+      | undefined
+    if (p?._engine?.getPendingCount) {
+      return p._engine.getPendingCount()
+    }
+    return 0
+  }
+
+  async getFailedCount(): Promise<number> {
+    const p = this.plugin("sync") as
+      | { _engine?: { getFailedCount(): Promise<number> } }
+      | undefined
+    if (p?._engine?.getFailedCount) {
+      return p._engine.getFailedCount()
+    }
+    return 0
   }
 
   _getSchema(): Schema | null {

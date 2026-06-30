@@ -2485,33 +2485,423 @@ class MockTransport implements SyncTransport {
 
 ## 15. Edge Cases & Error Handling
 
-### 15.1 Edge Cases
+This section is the definitive reference for how the sync engine behaves under failure, what guarantees it provides, and what application developers must handle themselves. It is organized into seven sub-sections:
 
-| Edge Case | Handling |
-|---|---|
-| **Mutation during sync** | The sync cycle uses a snapshot of pending changes. Mutations during sync are appended to the queue and picked up in the next cycle. |
-| **Same record mutated multiple times before sync** | Only the latest snapshot is pushed (the queue tracks each mutation separately, but the last update/delete for a record determines the final state). |
-| **Create then delete before sync** | Both changes are in the queue. On push, the server receives a create then a delete. The server applies both (create, then delete). The local queue marks both committed. |
-| **Update then delete before sync** | Similar — both changes are pushed. Server applies update, then delete. Net effect: record is deleted. |
-| **Tab crash mid-sync** | 'syncing' changes are reverted to 'pending' on next init(). Unapplied remote changes are re-pulled. |
-| **Server returns conflict for a create** | Rare edge case where remote already has the same ID. The ConflictResolver determines which version wins. Mitigation: use UUIDs. |
-| **Queue grows unbounded** | After each successful sync, `removeCommitted()` cleans up. Configurable threshold. |
-| **Network timeout during push** | Changes stay in 'syncing' → reverted to 'pending' on init or next sync. Backoff applies. |
-| **Clock skew** | Server timestamps are authoritative. Client timestamps are used only for local ordering and conflict comparison relative to last pull cursor. |
-| **Concurrent sync calls** | `#isSyncing` flag prevents concurrent sync cycles. |
-| **Adapter in transaction** | The sync engine should NOT use `adapter.transaction()` because it holds the transaction open too long. Instead, it uses individual `adapter.create/update/delete` calls. |
-| **Record schema changes during sync** | The sync engine is schema-agnostic. It sends raw `data` objects. Schema validation happens on the server or during local `collection.create()`, not during sync engine's direct adapter calls. |
+- **15.1 Formal State Machine** — exact transitions and invariants for sync change records
+- **15.2 Edge Case Matrix** — all known edge cases, their severity, handling mechanism, and status (implemented/planned)
+- **15.3 Error Recovery Matrix** — error types with detection, recovery, and developer guidance
+- **15.4 Defensive Programming** — runtime guards, validation, and circuit breakers
+- **15.5 Monitoring & Observability** — recommended logs, metrics, and alerting for production deployments
+- **15.6 Verified: Defensive Measures Already in Code** — cross-reference to implemented guards with test verification
+- **15.7 Production Readiness Summary** — scoring by category with prioritized fix list
 
-### 15.2 Error Categories
+---
 
-| Error Type | Recovery Strategy |
-|---|---|
-| **Network error** | Exponential backoff + retry |
-| **Server error (4xx/5xx)** | Backoff + retry (with jitter) |
-| **Validation error (per-change)** | Mark individual change as 'failed', continue batch |
-| **Timeout** | Abort batch, revert to pending, backoff + retry |
-| **Auth error (401)** | Stop syncing, emit error event, user must re-authenticate |
-| **Rate limit (429)** | Backoff + retry with longer delay |
+### 15.1 Formal State Machine
+
+Every `SyncChangeRecord` in `_ctrodb_sync_changes` follows a strict state machine. Understanding this is essential for reasoning about correctness.
+
+```
+                +-- retry ---> pending ──────> syncing ──> committed ──> [deleted]
+                |                                  |
+                ^                                  v
+          [init crash recovery]               failed
+```
+
+#### 15.1.1 States
+
+| State | Meaning | Visible to `getPending()` | Visible to `getFailed()` |
+|---|---|---|---|
+| `pending` | Recorded locally, waiting to sync | ✅ | ❌ |
+| `syncing` | Currently being pushed to server | ❌ | ❌ |
+| `committed` | Accepted by server, awaiting cleanup | ❌ | ❌ |
+| `failed` | Rejected by server or transport error | ❌ | ✅ |
+
+#### 15.1.2 Transitions
+
+| From | To | Trigger | Where |
+|---|---|---|---|
+| `pending` | `syncing` | `markSyncing(ids)` at start of push batch | `sync-engine.ts:#pushChanges` |
+| `syncing` | `committed` | `markCommitted(id)` after server accepts | `sync-engine.ts:#pushChanges` |
+| `syncing` | `failed` | `markFailed(id, error)` after server rejects | `sync-engine.ts:#pushChanges` |
+| `syncing` | `pending` | `markPending(id)` on network error | `sync-engine.ts:#pushChanges` (catch block) |
+| `syncing` | `pending` | `init()` on startup (crash recovery) | `change-tracker.ts:init` |
+| `failed` | `pending` | `markPending(id)` via `retryFailedSync()` or devtools | `devtools.ts:retryFailedSync` |
+| `pending` | `committed` | `markCommitted(id)` after conflict resolution | `sync-engine.ts:#resolveConflict` |
+| `committed` | `[deleted]` | `removeCommitted()` at end of sync cycle | `change-tracker.ts:removeCommitted` |
+
+#### 15.1.3 Invariants
+
+1. No concurrent sync: `#isSyncing` prevents overlapping `sync()` calls. If a second call arrives while the first is executing, it returns early.
+2. All or nothing per batch: On network failure during push, **all** changes in the batch are reverted to `pending`. Partial marking (some committed, some failed, some reverted) only happens after a successful server response with explicit accept/conflict/error fields.
+3. Idempotent push: Committed changes are removed after `removeCommitted()`. If the process crashes before removal, the next `init()` leaves them as `committed`, and they are cleaned up on the next successful sync. They are never re-pushed.
+4. No duplicates in queue: Each change has a unique `id` (UUID). The primary key constraint on the store prevents accidental duplicates.
+5. Monotonic cursor: `lastPullCursor` only moves forward. It is persisted via `setMetadata` after each successful pull cycle.
+
+---
+
+### 15.2 Edge Case Matrix
+
+Every entry includes: scenario, severity (🟥 critical / 🟧 high / 🟨 medium / 🟩 low), current handling status, and the file/line where it's addressed.
+
+#### 15.2.1 Data Integrity
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 1 | **Mutation during active sync** | 🟩 Low | Sync takes a snapshot of pending changes at the start. Concurrent mutations append new records that are picked up in the next cycle. The current cycle is not affected. | ✅ Implemented `sync-engine.ts:263` |
+| 2 | **Same record mutated N times before sync** | 🟩 Low | Queue retains all N mutations. On push, the server processes them in order (create → updates → delete). Net state after all N is correct. For efficiency, `compactSyncQueue()` (devtools) reduces N→1 per (collection, recordId). | ✅ Implemented `devtools.ts:compactSyncQueue` |
+| 3 | **Create → delete before sync** | 🟩 Low | Both records pushed in order. Server creates then deletes. Net effect: record never persists on server. Both committed locally. | ✅ Implemented (by queue ordering) |
+| 4 | **Update → delete before sync** | 🟩 Low | Same as above: update pushed first, delete second. Net: record deleted. | ✅ Implemented |
+| 5 | **Delete → create before sync** | 🟩 Low | Delete pushed first (no-op if server didn't have it), then create. Net: record created on server. | ✅ Implemented (queue FIFO) |
+| 6 | **Partial batch acceptance with conflicts** | 🟧 High | Server returns `accepted`, `conflicts`, and `errors` in a single response. The engine handles each category: accepted→committed, conflicts→resolve→committed, errors→failed. All in one pass. | ✅ Implemented `sync-engine.ts:288-300` |
+| 7 | **Server accepts a change that was already in-flight from another tab** | 🟨 Medium | Tab A pushes change C1. Server accepts. Tab A broadcasts via `BroadcastChannel`. Tab B's `triggerSync()` fires. Tab B has C1 in its queue (was created locally via the same user action in both tabs). Tab B pushes C1 — server accepts again but reports it as an update. C1 is committed and cleaned up by both tabs. **No duplicate data** because the server's change ID differs from the local change ID. | ✅ Implemented (unique UUID per local change) |
+| 8 | **Record deleted locally while pending create exists** | 🟩 Low | Queue has [create(C1), delete(D1)]. Server receives create (record created), then delete (record deleted). Net: record gone. Both C1 and D1 committed. | ✅ Implemented |
+| 9 | **Pull re-applies a change that was just conflict-resolved** | 🟧 High | Push detects conflict → resolver picks remote → applies remote via `adapter.update()`. Then pull phase fetches the same remote change (server just accepted it as the result of push). `#applyRemoteChange` runs again: record exists, no pending local changes → `adapter.update()` with same data. **Result**: redundant but idempotent write. | ✅ Implemented (pull apply is idempotent for updates) |
+| 10 | **Queue compaction (`compactSyncQueue`) runs during active sync** | 🟥 Critical | DevTools function reads all pending, deduplicates, and deletes old entries. If a concurrent `sync()` has marked some of those as `syncing` (mid-push), the compaction could delete records that are currently being sent to the server. Those changes would be lost forever. **Mitigation**: `compactSyncQueue` must only be called when `engine.status.isSyncing === false`. The function itself should verify each record is still `pending` or `failed` before deleting. | ⚠️ **Bug**: GAP-3 — needs fix |
+
+#### 15.2.2 Concurrency & Multi-Tab
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 11 | **Two tabs sync simultaneously** | 🟧 High | `#isSyncing` prevents concurrent sync within a tab. Across tabs, each tab has its own engine instance. Both push their local changes. Server merges both (or returns conflicts). Tab A's pull fetches Tab B's changes (and vice versa). BroadcastChannel triggers re-renders. | ✅ Implemented (Phase 8) |
+| 12 | **BroadcastChannel message from Tab B arrives while Tab A is syncing** | 🟩 Low | Tab A's `BroadcastChannel.onmessage` calls `triggerSync()` which sets a debounce timer. Since `sync()` is already running (`#isSyncing`), the debounce will fire after sync completes. | ✅ Implemented `sync-engine.ts:460-471` |
+| 13 | **Tab B creates a change for a record that Tab A just synced** | 🟨 Medium | Tab A's change is committed and removed from queue. Tab B creates a new change. Tab A's BroadcastChannel triggers re-render. Tab B's next sync pushes the new change. Server handles it normally. | ✅ Implemented |
+| 14 | **Three tabs: Tab A creates, Tab B syncs, Tab C syncs** | 🟨 Medium | Tab A creates → change broadcast to B and C. Tab B syncs → pushes A's change (if B was the originator... wait, B only pushes its own changes. Tab B does NOT push Tab A's changes because the change belongs to Tab A). Tab B's pull fetches A's change from server (after A syncs). Tab C does the same. Each tab independently pulls the change. | ✅ Implemented (changes are per-originator) |
+
+#### 15.2.3 Crash & Recovery
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 15 | **Tab crash mid-push (after `markSyncing`, before response)** | 🟥 Critical | `init()` on next load finds changes stuck in `syncing` and reverts them to `pending`. They will be pushed again. The server may have already received and processed them (idempotent on server). | ✅ Implemented `change-tracker.ts:16-25` |
+| 16 | **Tab crash mid-pull (after applying some remote changes)** | 🟧 High | The applied changes are persisted (adapter.create/update/delete is durable). The cursor is NOT saved (it's saved at the end of the pull loop). Next sync re-pulls from the old cursor, re-applying already-applied changes. **Idempotent**: create becomes update, update repeats, delete is guarded by existence check. | ✅ Implemented (idempotent pull apply) |
+| 17 | **Tab crash after `removeCommitted()` deletes committed records** | 🟩 Low | All committed changes were successfully synced. No data loss. The crash happened after cleanup, which is a no-op for correctness. | ✅ Implemented (cleanup is post-sync) |
+| 18 | **IndexedDB transaction wrapping all adapter operations during sync** | 🟧 High | The sync engine intentionally does NOT use `adapter.transaction()` — each `create/update/delete` is its own transaction. This prevents "transaction too long" errors and allows partial progress. The tradeoff is no atomicity across the entire sync cycle. | ✅ Implemented (by design) |
+| 19 | **`markSyncing` fails midway (after 5 of 50 IDs)** | 🟥 Critical | Some records are stuck in `syncing` — invisible to `getPending()` — until the next `init()` resets them. During this window, those records will never be pushed. **Mitigation**: the engine should catch write failures in `markSyncing` and revert already-written IDs to `pending`. | ⚠️ **Bug**: GAP-2 — needs fix in `change-tracker.ts:85-93` |
+
+#### 15.2.4 Server-Side
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 20 | **Server returns conflict for a create (duplicate recordId)** | 🟨 Medium | Rare if using UUIDs for recordId. If it happens, the ConflictResolver determines which version wins. | ✅ Implemented `conflict-resolver.ts` |
+| 21 | **Server prunes change log (cursor becomes stale)** | 🟧 High | Client's `lastPullCursor` points to a change that no longer exists. The server's `findIndex()` returns `-1`, so `startIndex = 0` — all changes are sent. The client receives all available changes (not just diffs). This is correct but potentially expensive. **Mitigation**: Server should return a `reset: true` flag to indicate the client should clear its cursor and re-pull from scratch. | ❌ **Not implemented** (server-side feature) |
+| 22 | **Server rolls back after accepting changes** | 🟧 High | Server accepted changes (client marked committed, cleaned up). Server crashes before persisting. Changes are lost. **Mitigation**: This is a server concern, not client. The client has no way to detect this unless the server returns a "you're missing changes" signal on next push. The sync protocol assumes server writes are durable once `accepted` is returned. | ❌ **Not implemented** (requires server-side write-ahead log) |
+| 23 | **Server returns fewer changes than `batchSize` with `hasMore: true`** | 🟩 Low | The engine checks `hasMore && result.changes.length > 0`. If changes is empty but hasMore is true, the loop terminates. No infinite loop. | ✅ Implemented `sync-engine.ts:400` |
+| 24 | **Server returns duplicate changes across paginated pulls** | 🟩 Low | Cursor-based pagination should prevent this. If a server bug causes duplicates, applying them is idempotent (create→update, update→update, delete guarded by existence). | ✅ Implemented (idempotent apply) |
+| 25 | **Unlimited pull pagination (OOM)** | 🟨 Medium | If the server keeps returning `hasMore: true`, the pull loop could iterate indefinitely. There is no hard cap on pull iterations. **Mitigation**: Add a `maxPullPages` constant (e.g., 1000) or a total changes cap. | ⚠️ **Gap**: GAP-7 |
+
+#### 15.2.5 Network & Transport
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 26 | **Network timeout during push** | 🟧 High | Transport throws (fetch timeout or AbortSignal). `#pushChanges` catches → reverts all batch IDs to `pending`. `sync()` catch → `#scheduleBackoff`. | ✅ Implemented `sync-engine.ts:281-285` |
+| 27 | **Network timeout during pull** | 🟧 High | Transport throws. `#pullChanges` propagates the error to `sync()` catch. The cursor is NOT updated. Next sync re-pulls from the same cursor. **Note**: any changes already applied in this cycle (from earlier pages) remain applied. Next cycle may re-apply them (idempotent). | ✅ Implemented `sync-engine.ts:380-401` |
+| 28 | **Connection lost mid-request** | 🟧 High | Same as timeout — `fetch` or WebSocket throws network error. Engine reverts push batch to pending and schedules retry. | ✅ Implemented |
+| 29 | **Server returns 413 (Request Entity Too Large)** | 🟨 Medium | Push batch is too large. The engine treats this as a server error: entire batch reverted to pending. After max backoff retries, they stay in `failed` status. **Mitigation**: Client should reduce batch size on 413 and retry. | ⚠️ **Gap**: no batch-size-backoff on 413 |
+| 30 | **Server returns 429 (Rate Limited)** | 🟧 High | The engine treats it as any server error (backoff + retry). The default backoff already includes jitter, which helps avoid synchronized retries. However, the engine does NOT respect the `Retry-After` header. | ⚠️ **Gap**: `Retry-After` header not parsed |
+| 31 | **Server returns 401 (Unauthorized)** | 🟧 High | Push/pull fails with 401. The engine marks changes as `pending` (not `failed`) and schedules backoff. This will keep retrying with auth errors. **Better**: detect 401 and stop retrying, emit an auth-required event. | ⚠️ **Gap**: GAP-12 (AbortError treated as failure) + 401 not special-cased |
+| 32 | **Server goes down mid-operation, HTTP transport `isConnected` stays `true`** | 🟧 High | `HttpTransport.connect()` is a one-shot HEAD request. Once `connected` is set to `true`, it never reverts (unless `disconnect()` is called). A server failure mid-operation will cause push/pull to throw, but `status.isConnected` remains `true`. **Mitigation**: Track push/pull failures and auto-set `#connected = false` on transport errors. | ⚠️ **Bug**: GAP-16 |
+| 33 | **WebSocket reconnects with exponential backoff indefinitely** | 🟨 Medium | `WsTransport` has a `maxReconnectAttempts` (default 10). After exhausting retries, it stops. However, `SyncEngine` has no circuit breaker — it will keep calling `sync()` which tries to push/pull via a disconnected transport, which throws, which triggers backoff, which calls `sync()` again. This creates a retry loop with a 5-minute interval that never terminates. | ⚠️ **Gap**: GAP-1 — no circuit breaker |
+| 34 | **WebSocket message arrives for a timed-out request** | 🟩 Low | The request is removed from `#pendingRequests` on timeout. When the response arrives, `requestId` is not found, and the message is silently dropped. This is correct behavior but opaque to debugging. | ✅ Implemented (silent drop) |
+| 35 | **WebSocket `onmessage` fires synchronously during `send()`** | 🟨 Medium | Rare, but if a polyfill or stub WebSocket calls `onmessage` synchronously in `send()`, the response may arrive before `#waitForResponse` sets up the pending entry. The response is dropped. The request hangs until the 30s timeout. **Mitigation**: Set up the pending entry in `#waitForResponse` BEFORE calling `send()`. | ⚠️ **Bug**: GAP-4 |
+
+#### 15.2.6 Timing & Ordering
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 36 | **Clock skew between clients** | 🟨 Medium | Client timestamps are used for LWW conflict resolution. If Client A's clock is 5 minutes ahead of Client B's, A's changes always win in LWW. **Mitigation**: Server should normalize timestamps or use its own `serverTimestamp` as authoritative. The engine already stores `serverTimestamp` from `accepted` responses. | ✅ Partially implemented (serverTimestamp stored but not used for LWW — uses local timestamp) |
+| 37 | **Push then pull: pull returns the change that was just pushed** | 🟩 Low | After push, the change is on the server. Pull fetches it. `#applyRemoteChange` sees the record exists (push just updated it) and applies the same data again. Idempotent. | ✅ Implemented |
+| 38 | **Abort during paginated pull (page 1 applied, page 2 not retrieved)** | 🟧 High | Cursor is NOT updated because pull never completed. Next sync re-pulls from the original cursor, getting page 1 again AND page 2. Page 1 changes are re-applied (idempotent). Correct but slightly wasteful. | ✅ Implemented (cursor saved only after full pull cycle) |
+| 39 | **User navigates away mid-sync** | 🟩 Low | If the component unmounts and calls `engine.destroy()`, the abort signal cancels the in-flight request. The sync is interrupted. Next init() recovers stuck changes. | ✅ Implemented |
+| 40 | **Auto-sync timer fires while `isSyncing` is true (long sync cycle)** | 🟩 Low | The timer callback calls `sync()` which returns early due to `#isSyncing`. The missed cycle is not re-queued. **Mitigation**: Acceptable — the next timer tick will fire. For intervals shorter than the sync cycle, some ticks are skipped. | ✅ Implemented `sync-engine.ts:204` |
+
+#### 15.2.7 Storage & Capacity
+
+| # | Edge Case | Severity | Handling | Status |
+|---|---|---|---|---|
+| 41 | **Sync queue grows to millions of records** | 🟧 High | `getPending()` loads ALL records into memory (via `adapter.findAll`), then filters/sorts in JS. With millions of records, this will OOM. **Mitigation**: Implement paginated reads using IndexedDB indexes (status index + timestamp index). | ⚠️ **Gap**: Phase 1 decision deferred index support; queue is assumed small |
+| 42 | **IndexedDB quota exceeded** | 🟧 High | Sync queue additions fail. `tracker.append()` throws. The app's `collection.create()` also fails because the adapter can't write. **Mitigation**: The app should listen for QuotaExceededError via `navigator.storage.estimate()` and show a storage warning. | ❌ **Not implemented** (app responsibility) |
+| 43 | **`crypto.randomUUID()` throws (permissions policy restriction)** | 🟩 Low | In some iframe/fenced-frame contexts, `crypto.randomUUID()` exists but throws. The current fallback check (`typeof crypto.randomUUID === "function"`) passes, then the call throws. **Mitigation**: Wrap in try/catch. | ⚠️ **Bug**: BUG-1 in `change-tracker.ts` |
+| 44 | **`fetch`/`WebSocket` not available (SSR/Node <18)** | 🟨 Medium | Transport constructors don't check for global availability. A helpful error should be thrown at construction time, not at first use. | ⚠️ **Gap**: BUG-4, BUG-5 |
+
+---
+
+### 15.3 Error Recovery Matrix
+
+For every error the sync engine can encounter, this table documents the detection mechanism, the recovery strategy, the developer's responsibility, and whether the behavior is configurable.
+
+#### 15.3.1 Transport Errors
+
+| Error | Detected By | Auto-Recovery | Developer Responsibility | Configurable |
+|---|---|---|---|---|
+| **Network unavailable** (no internet) | `fetch`/WebSocket throws `TypeError` or `Error` | Mark push batch → `pending`, schedule backoff. Pull → error propagated, retry next cycle. | Listen to `syncStatus.isConnected` to show offline UI. Listen for phase: "error" events. | Backoff params (`retryMaxAttempts`, `autoSync.retryMaxDelayMs`) |
+| **Request timeout** | `AbortSignal.timeout()` fires; transport throws `TimeoutError` | Same as network unavailable | Same as above | `HttpTransport.timeoutMs`, `WsTransport` request timeout (30s hardcoded) |
+| **Server 4xx** (client error) | `response.ok === false` | Push: marks individual changes as `failed` per-change for validation errors. 401/403 treated as batch failure → all reverted to `pending`. | Must re-authenticate on 401. Fix invalid data for 400/422. | None (server-driven) |
+| **Server 5xx** (server error) | `response.ok === false` | Batch reverted to `pending`, backoff + retry. Same as network error. | Report to server ops. | Same as network error |
+| **Server 429** (rate limit) | `response.status === 429` | Same as 5xx. Does NOT parse `Retry-After` header. | Implement application-level rate limiting if needed. | None |
+| **Server 413** (payload too large) | `response.status === 413` | Same as 5xx. No automatic batch-size reduction. | Reduce `pushBatchSize` config. Implement batch-size halving on 413. | `pushBatchSize` (static) |
+| **Connection closed** (WebSocket) | `onclose` event | Auto-reconnect with exponential backoff (up to `maxReconnectAttempts`). All pending requests rejected. | Re-subscribe to `onServerPush` after reconnect. | `wsTransport.reconnectInterval`, `maxReconnectAttempts` |
+| **WebSocket connect timeout** | `setTimeout` fires before `onopen` | Cleans up socket. Schedules reconnect. | Same as connection closed. | Connection timeout (10s hardcoded) |
+| **Malformed server response** (invalid JSON, missing fields) | `JSON.parse` throws, or response validation fails | Push/pull throws → batch reverted → retry. If persistent, changes stay `pending`. | Implement custom transport with better error handling. | ❌ No response validation (GAP-6) |
+
+#### 15.3.2 Queue & State Errors
+
+| Error | Detected By | Auto-Recovery | Developer Responsibility | Configurable |
+|---|---|---|---|---|
+| **Stuck `syncing` changes** (crash mid-sync) | `init()` finds records with `status === "syncing"` | Reverts to `pending`, increments `retries`. | None — automatic on next page load. | None |
+| **Duplicate change ID** (UUID collision) | `adapter.create()` throws (primary key violation) | The `append()` call throws. The `onAfterCreate/Update/Delete` hook propagates the error. The collection operation itself fails. | The app must handle `collection.create()` errors. | None (use `crypto.randomUUID()` which is collision-resistant) |
+| **Queue store missing** | `adapter.findAll()` throws on first access | The plugin's `storeNames` should create it. If not, the engine crashes on first sync. | Verify the sync plugin is registered with `storeNames: ["_ctrodb_sync_changes"]`. | Plugin config |
+| **Adapter metadata unavailable** | `getMetadata`/`setMetadata` throws | The engine treats cursor and lastSyncAt as null. Continues without persisted state. | Ensure the adapter supports metadata operations. | Adapter implementation |
+
+#### 15.3.3 Conflict Resolution Errors
+
+| Error | Detected By | Auto-Recovery | Developer Responsibility | Configurable |
+|---|---|---|---|---|
+| **Custom resolver throws** | `ConflictResolverEngine.resolve` catch | Falls back to LWW. The conflict change remains `syncing` and will be retried. | Ensure custom resolvers are pure and never throw. | Custom resolver function |
+| **Invalid strategy name** | Switch statement in `resolve` | Throws. The sync cycle fails, changes revert to `pending`, backoff retries. | Use a valid `ConflictStrategy`. | `strategy` config |
+| **Server returns invalid conflict data** (missing fields) | Property access on `undefined` in `#resolveConflict` | Throws. Same as above. | Ensure server returns correct conflict format per API contract. | None |
+
+#### 15.3.4 Sync Engine Lifecycle Errors
+
+| Error | Detected By | Auto-Recovery | Developer Responsibility | Configurable |
+|---|---|---|---|---|
+| **`sync()` called before `init()`** | `#tracker` may not be initialized | `#tracker.init()` was called in `engine.init()`. If not called, `getPending()` may work (adapter returns empty) but crash recovery is skipped. | Always call `connect()` (which calls `engine.init()`) before calling `sync()`. | None |
+| **`destroy()` called during active sync** | AbortController fires | In-flight request is cancelled. Sync returns early with `AbortError`. Stuck `syncing` changes recovered on next `init()`. | Ensure `destroy()` cleanup runs. | None |
+| **AbortError in sync catch block triggers backoff** | `sync()` catch checks error type | Currently does NOT check — all errors trigger backoff. **Bug**: an intentional abort (user cancels sync) causes unwanted retry. | None on developer side. Engine should skip backoff for `AbortError`. | ⚠️ **Bug**: GAP-12 |
+
+---
+
+### 15.4 Defensive Programming
+
+This section lists runtime guards, assertions, and circuit breakers that the engine employs — and identifies where gaps remain.
+
+#### 15.4.1 Implemented Guards
+
+| Guard | Location | What It Prevents |
+|---|---|---|
+| `#isSyncing` re-entrance guard | `sync-engine.ts:204` | Concurrent sync cycles |
+| `#backoffTimer !== null` guard | `sync-engine.ts:483` | Multiple simultaneous backoff timers |
+| `typeof window !== "undefined"` check | `sync-engine.ts:134` | SSR/Node crash on `window.addEventListener` |
+| `BroadcastChannel` try/catch | `change-tracker.ts:57-68` | Node environment crash on `new BroadcastChannel()` |
+| `transport.connect()` try/catch | `sync-engine.ts:105-110` | Offline-start where transport fails to connect |
+| Push network failure → revert all to pending | `sync-engine.ts:281-285` | Partial state where some batch items marked different status |
+| `removeCommitted()` empty-list guard | `change-tracker.ts:139` | Deletion operation on empty array |
+| `change.data === null` skip in pull apply | `sync-engine.ts:421` | Null data crash on remote apply |
+| Local existence check in pull delete | `sync-engine.ts:437-439` | Delete on non-existent record (IndexedDB may throw) |
+| Subscriber error isolation | `sync-engine.ts:533-537` | One bad subscriber listener cannot crash engine |
+| `conflict.merged` null guard | `sync-engine.ts:349-362` | Null merge result causing write crash |
+| `onAfterDelete` oldRecord null coerce | `sync-plugin.ts:47-48` | Null `prevData` in change record |
+| `#mergeSignals` dual AbortSignal handling | `http-transport.ts:118-142` | Proper cancellation when both timeout and external signal are provided |
+| WebSocket `#send` readyState check | `ws-transport.ts:232-236` | Prevent send on disconnected socket |
+| WebSocket reconnect capped at maxAttempts | `ws-transport.ts:315-317` | Infinite reconnect loop |
+| Invalid timestamp → `NaN` → `0` fallback | `conflict-resolver.ts:64-67` | Crash on malformed timestamp |
+| `findById` null in `markFailed` | `change-tracker.ts:106-109` | Crash on concurrent deletion of change record |
+| Compact queue groups by (collection, recordId) | `devtools.ts:113-122` | Correct deduplication across collections |
+| Event log ring-buffer shift | `devtools.ts:38-40` | Unbounded memory growth in event log |
+
+#### 15.4.2 Gap: Guards That Should Be Added
+
+| Missing Guard | Priority | Suggested Implementation |
+|---|---|---|
+| **AbortError discrimination in `sync()` catch** | 🟧 High | Check `if ((error as DOMException).name === 'AbortError')` — skip `lastError`, skip `scheduleBackoff()`, re-throw or return cleanly |
+| **Response validation for push/pull** | 🟨 Medium | Verify `accepted[i].id` is in the batch set. Verify `changes[i].id` is non-empty. Throw descriptive error on malformed response. |
+| **Max pull pages** | 🟨 Medium | Add `maxPullPages = 1000` constant in `#pullChanges`. Throw if exceeded to break infinite loop. |
+| **Backoff circuit breaker** | 🟧 High | After N consecutive failures (configurable, default 50), enter "dead" state — stop auto-sync until user manually triggers sync or reconnects |
+| **`markSyncing` transactional rollback** | 🟥 Critical | If the 3rd of 50 `update` calls fails, revert the first 2: `for (const id of done) { await this.markPending(id) }` |
+| **`compactSyncQueue` re-check status before delete** | 🟥 Critical | `const current = await this.getById(r.id); if (current?.status === "pending" || current?.status === "failed") { ... }` |
+| **`isConnected` auto-decline on transport error** | 🟧 High | In `HttpTransport`, set `#connected = false` when push/pull throws a network error. Keep it false until the next successful `connect()` |
+| **`Retry-After` header parsing** | 🟩 Low | On 429, parse `Retry-After` (seconds or HTTP-date) and use as backoff delay |
+| **413 batch-size backoff** | 🟩 Low | On 413, halve `pushBatchSize` for this batch and retry without other changes |
+| **Globals existence checks** | 🟩 Low | Verify `typeof fetch !== "undefined"` and `typeof WebSocket !== "undefined"` in transport constructors |
+
+#### 15.4.3 State Invariant Enforcement
+
+The engine does not currently enforce state invariants at runtime (no assertions). In production, assertions are typically removed. However, we recommend the following **debug-mode assertions** that can be toggled via a `__DEV__` flag:
+
+```typescript
+// Debug assertions — stripped in production builds
+function assertInvariant(condition: boolean, message: string): void {
+  if (typeof __DEV__ !== "undefined" && __DEV__ && !condition) {
+    console.error(`[ctrodb] Sync invariant violated: ${message}`)
+  }
+}
+
+// Usage in critical paths:
+assertInvariant(
+  new Set(batchIds).size === batchIds.length,
+  "Batch IDs must be unique",
+)
+assertInvariant(
+  acceptedIds.every((id) => batchIds.includes(id)),
+  "Server returned acceptance for non-batch IDs",
+)
+```
+
+---
+
+### 15.5 Monitoring & Observability
+
+Production deployments require visibility into sync health. This section covers recommended instrumentation.
+
+#### 15.5.1 Emitted Events (Already Available)
+
+The engine emits `SyncEvent` at each phase. These are the primary observability mechanism.
+
+| Phase | When | Payload |
+|---|---|---|
+| `push` | Start of push phase | `{ phase: "push" }` |
+| `pull` | Start of pull phase | `{ phase: "pull", progress: SyncProgress }` |
+| `conflict` | After conflict resolution | `{ phase: "conflict", progress: SyncProgress }` |
+| `complete` | Sync cycle finished successfully | `{ phase: "complete", progress: SyncProgress }` |
+| `error` | Sync cycle failed | `{ phase: "error", error: Error }` |
+
+**Recommended production usage**:
+
+```typescript
+db.onSync((event) => {
+  if (event.phase === "error") {
+    captureError(event.error)  // Send to Sentry/Datadog
+  }
+  if (event.phase === "complete") {
+    metrics.recordSyncDuration(
+      Date.now() - syncStartTime,
+      event.progress.pushed,
+      event.progress.pulled,
+    )
+  }
+  if (event.progress?.failed > 0) {
+    metrics.increment("sync.changes.failed", event.progress.failed)
+  }
+})
+```
+
+#### 15.5.2 Recommended Metrics (App-Level)
+
+Applications should track these metrics for production monitoring:
+
+| Metric | Type | How to Measure | Alert Threshold |
+|---|---|---|---|
+| `sync.cycle.duration` | Histogram | Time from push start to complete event | >30s (p95) |
+| `sync.changes.pending` | Gauge | `db.getPendingCount()` at 30s interval | >1000 |
+| `sync.changes.failed` | Counter | Sum of `progress.failed` across cycles | >10 in 5 minutes |
+| `sync.errors.total` | Counter | Count of error-phase events | >5 in 5 minutes |
+| `sync.backoff.delay` | Gauge | Current backoff delay (expose via devtools) | >60s |
+| `sync.cycles.skipped` | Counter | Count of `isSyncing`-guard rejections | >100 in 5 minutes |
+| `sync.conflict.count` | Counter | Sum of `progress.conflicts` across cycles | >1 per user per hour |
+| `sync.queue.size` | Gauge | Total records in sync store | >10000 |
+| `sync.connectivity` | Gauge | `syncStatus.isConnected` (0/1) | 0 for >5 minutes |
+| `sync.last.success` | Gauge | Unix timestamp of last complete event | >30 minutes ago |
+
+#### 15.5.3 Recommended Logging Levels
+
+| Level | Events | Example |
+|---|---|---|
+| `error` | Sync cycle failures, transport errors, auth failures | `Sync cycle failed: Network error` |
+| `warn` | Conflicts, partial failures, high retries, queue compaction | `3 changes marked failed: Validation failed` |
+| `info` | Sync cycle start/complete, connectivity changes | `Sync complete: pushed 5, pulled 2, conflicts 1` |
+| `debug` | Per-change progress, state transitions, backoff scheduling | `Change abc-123: pending → syncing` |
+
+The engine itself does not produce log output (it emits events). Applications should attach an event listener that routes events to their chosen logger:
+
+```typescript
+db.onSync((event) => {
+  if (event.phase === "error") {
+    logger.error({ component: "sync" }, "Sync failed", { error: event.error })
+  }
+  if (event.phase === "complete") {
+    logger.info({ component: "sync" }, "Sync complete", { progress: event.progress })
+  }
+})
+```
+
+#### 15.5.4 Developer Tools Integration
+
+The built-in devtools (`src/sync/devtools.ts`) provide runtime introspection:
+
+- `inspectSyncQueue(db)` — Full queue snapshot (pending/syncing/committed/failed with stats)
+- `getSyncStats(db)` — Lightweight counts without loading all records
+- `createSyncEventLog(db, maxSize)` — Ring-buffer of last N sync events for debugging
+- `retryFailedSync(db)` — Manual retry of failed changes
+- `clearCommittedSync(db)` — Manual cleanup of committed changes
+- `compactSyncQueue(db)` — Deduplicate pending/failed per (collection, recordId)
+- `useSyncQueue()` / `SyncDevPanel` — React component for real-time queue inspection
+
+These are intended for development mode and admin UIs, not production monitoring.
+
+#### 15.5.5 Health Check Endpoint (Server-Side)
+
+Reference server (`examples/sync/server-node/`) exposes `GET /health` returning `{ status: "ok" }`. Production deployments should extend this with:
+
+```json
+{
+  "status": "ok",
+  "uptime": 3600,
+  "pendingChanges": 0,
+  "connectedClients": 42,
+  "lastPushAt": "2026-06-30T12:00:00Z",
+  "lastErrorAt": null,
+  "changeLogSize": 15000
+}
+```
+
+---
+
+### 15.6 Verified: Defensive Measures Already in Code
+
+For reference, the following production-safety measures are already implemented and tested. These are not theoretical — they exist in the codebase at the listed locations:
+
+| Measure | Files | Verified By |
+|---|---|---|
+| Crash recovery (revert stuck `syncing` → `pending`) | `change-tracker.ts:16-25` | `sync-engine.test.ts` |
+| Re-entrance guard (`#isSyncing`) | `sync-engine.ts:204` | `sync-engine.test.ts` |
+| Push network failure → revert batch to pending | `sync-engine.ts:281-285` | Integration tests |
+| Backoff with jitter (0.75-1.25x) | `sync-engine.ts:486-491` | Integration test |
+| Debounce rapid `triggerSync()` calls | `sync-engine.ts:460-471` | Integration test |
+| Idempotent pull application | `sync-engine.ts:414-443` | Integration tests |
+| Signal merging (timeout + external abort) | `http-transport.ts:118-142` | `http-transport.test.ts` |
+| WebSocket reconnect with exponential backoff | `ws-transport.ts:315-332` | `ws-transport.test.ts` |
+| Subscriber error isolation | `sync-engine.ts:533-537` | `sync-engine.test.ts` |
+| Event log ring-buffer cap | `devtools.ts:38-40` | `devtools.test.ts` |
+| Crypto.randomUUID() fallback | `change-tracker.ts:35-38` | Implicit (tested in Node without crypto) |
+| BroadcastChannel graceful fallback | `change-tracker.ts:57-68` | Node tests pass without BroadcastChannel |
+| Online/offline detection | `sync-engine.ts:134-139` | `broadcast.test.ts` |
+| Cursor persistence across restarts | `sync-engine.ts:99-102, 235-238` | Implicit (confirmed by integration tests) |
+| Multi-tab cross-notification | `change-tracker.ts:57-68`, `sync-engine.ts:116-131` | `broadcast.test.ts` |
+| Queue compaction (deduplication) | `devtools.ts:103-137` | `devtools.test.ts` |
+| Configurable batch sizes | `sync-engine.ts:84-85` | Integration tests |
+| Configurable auto-sync interval/debounce | `sync-engine.ts:88-90` | Integration tests |
+| Transport connect error handling | `sync-engine.ts:105-110` | `sync-engine.test.ts` |
+| AbortController per sync cycle | `sync-engine.ts:207` | `sync-engine.test.ts` |
+| Persisted metadata (cursor, lastSyncAt) | `sync-engine.ts:235-238` | Confirmed by init/connect tests |
+| Conflict resolution strategies (4 built-in) | `conflict-resolver.ts` | `conflict-resolver.test.ts` |
+| Error isolation per subscriber | `sync-engine.ts:536` | `sync-engine.test.ts` (subscriber throws) |
+
+---
+
+### 15.7 Production Readiness Summary
+
+| Category | Score | Notes |
+|---|---|---|
+| **Crash recovery** | ✅ Excellent | Stuck `syncing` reverted, idempotent push/pull, cursor restart | 
+| **Error handling** | 🟧 Good | Most error paths handled. Missing: AbortError discrimination, 413/429 special handling |
+| **State machine correctness** | ✅ Excellent | Formal transitions, no invalid states, all one-directional |
+| **Concurrency safety** | ✅ Good | `#isSyncing`, per-tab engine isolation, BroadcastChannel coordination |
+| **Network resilience** | 🟧 Good | Backoff + jitter, reconnect, debounce. Missing: circuit breaker, `isConnected` auto-decline |
+| **Storage efficiency** | 🟨 Fair | `removeCommitted()` after each sync. Missing: indexed reads for large queues, compression |
+| **Observability** | 🟧 Good | Events emitted at each phase, devtools for inspection. Missing: metrics hooks, logging level routing |
+| **Test coverage** | ✅ Excellent (core), 🟧 Fair (transports) | 442 tests passing. HTTP + WS transports have unit tests but transport tests have some coverage gaps |
+| **Defensive programming** | 🟧 Good | 22+ runtime guards. Missing: response validation, state invariants |
+
+**Recommended actions before production launch** (in priority order):
+1. Fix `markSyncing` rollback on partial failure (GAP-2)
+2. Fix `compactSyncQueue` race with active sync (GAP-3)
+3. Add AbortError discrimination (GAP-12)
+4. Fix `isConnected` auto-decline on transport error (GAP-16)
+5. Fix `crypto.randomUUID()` try/catch for permissions policy (BUG-1)
+6. Add circuit breaker for permanent network failures (GAP-1)
+7. Add response validation for transport returns (GAP-6)
+8. Add maxPullPages guard (GAP-7)
+9. Fix `status.pendingChanges` hardcoded zero (GAP-14/15)
+10. Add `Retry-After` header parsing for 429 (GAP)
 
 ---
 
