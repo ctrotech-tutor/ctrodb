@@ -1,0 +1,20 @@
+export { ChangeTracker, SYNC_STORE } from "./change-tracker"
+export type {
+  ConflictResolution,
+  ConflictResolverFn,
+  ConflictStrategy,
+  PullOptions,
+  PushOptions,
+  SyncChangeRecord,
+  SyncChangeStatus,
+  SyncChangeType,
+  SyncConflict,
+  SyncEvent,
+  SyncPhase,
+  SyncPluginConfig,
+  SyncProgress,
+  SyncPullResult,
+  SyncPushResult,
+  SyncStatus,
+  SyncTransport,
+} from "./types"

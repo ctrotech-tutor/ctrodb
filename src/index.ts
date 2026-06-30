@@ -28,6 +28,28 @@ export { QueryBuilder, QueryExecutor, QueryPlanner } from "./query/index"
 export { Signal } from "./reactive/signal"
 export { Schema } from "./schema"
 export type {
+  ConflictResolution,
+  ConflictResolverFn,
+  ConflictStrategy,
+  PullOptions,
+  PushOptions,
+  SyncChangeRecord,
+  SyncChangeStatus,
+  SyncChangeType,
+  SyncConflict,
+  SyncEvent,
+  SyncPhase,
+  SyncPluginConfig,
+  SyncProgress,
+  SyncPullResult,
+  SyncPushResult,
+  SyncStatus,
+  SyncTransport,
+} from "./sync/index"
+
+// Sync
+export { ChangeTracker, SYNC_STORE } from "./sync/index"
+export type {
   ChangeEvent,
   ChangeType,
   CollectionSchema,
