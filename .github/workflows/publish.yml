@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
       - name: Install esbuild (pre-warm binary)
         run: npx --yes esbuild --version || true
@@ -71,6 +71,10 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - run: npm ci
       - run: npm run build
+      - name: Upgrade npm (required for OIDC)
+        run: npm install -g npm@latest
+      - name: Strip _authToken from .npmrc (let OIDC kick in)
+        run: |
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          sed -i '/_authToken/d' "$npmrc"
       - run: npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
