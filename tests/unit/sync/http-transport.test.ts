@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { HttpTransport } from "../../../src/sync/http-transport"
+import { SyncResponseValidationError } from "../../../src/sync/validation"
 import type {
   SyncChangeRecord,
   SyncPushResult,
@@ -486,6 +487,135 @@ describe("HttpTransport", () => {
       const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]![1] as RequestInit
       expect(fetchCall.cache).toBe("no-cache")
       expect(fetchCall.mode).toBe("cors")
+    })
+  })
+
+  describe("response validation (GAP-6)", () => {
+    it("throws SyncResponseValidationError on malformed push response", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+      mockFetch(200, { accepted: "not-an-array", conflicts: [], errors: [] })
+
+      await expect(transport.push([makeChange()])).rejects.toThrow(
+        SyncResponseValidationError,
+      )
+    })
+
+    it("throws SyncResponseValidationError on malformed pull response", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+      mockFetch(200, { changes: "not-an-array", cursor: null, hasMore: false })
+
+      await expect(transport.pull()).rejects.toThrow(SyncResponseValidationError)
+    })
+
+    it("throws on push response missing accepted array", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+      mockFetch(200, { conflicts: [], errors: [] })
+
+      await expect(transport.push([makeChange()])).rejects.toThrow(
+        SyncResponseValidationError,
+      )
+    })
+
+    it("throws on pull response missing changes array", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+      mockFetch(200, { cursor: null, hasMore: false })
+
+      await expect(transport.pull()).rejects.toThrow(SyncResponseValidationError)
+    })
+  })
+
+  describe("429 Retry-After (GAP)", () => {
+    function mock429(response: Response): void {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(response)
+    }
+
+    it("throws with retryAfter as seconds when Retry-After header is seconds", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+
+      mock429({
+        ok: false,
+        status: 429,
+        headers: new Headers({ "Retry-After": "120" }),
+        text: () => Promise.resolve("Rate limited"),
+      } as Response)
+
+      try {
+        await transport.push([makeChange()])
+      } catch (error) {
+        const err = error as Error & { retryAfter?: number }
+        expect(err.retryAfter).toBe(120000)
+        return
+      }
+      expect.unreachable("Should have thrown")
+    })
+
+    it("throws with retryAfter as duration when Retry-After is HTTP-date", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+      const futureDate = new Date(Date.now() + 5000).toUTCString()
+
+      mock429({
+        ok: false,
+        status: 429,
+        headers: new Headers({ "Retry-After": futureDate }),
+        text: () => Promise.resolve("Rate limited"),
+      } as Response)
+
+      try {
+        await transport.push([makeChange()])
+      } catch (error) {
+        const err = error as Error & { retryAfter?: number }
+        expect(err.retryAfter).toBeGreaterThan(0)
+        expect(err.retryAfter).toBeLessThanOrEqual(60000)
+        return
+      }
+      expect.unreachable("Should have thrown")
+    })
+
+    it("throws without retryAfter when Retry-After header is missing", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+
+      mock429({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        text: () => Promise.resolve("Rate limited"),
+      } as Response)
+
+      try {
+        await transport.push([makeChange()])
+      } catch (error) {
+        const err = error as Error & { retryAfter?: number }
+        expect(err.retryAfter).toBeUndefined()
+        return
+      }
+      expect.unreachable("Should have thrown")
+    })
+
+    it("throws 429 on pull as well", async () => {
+      transport = new HttpTransport({ url: "https://api.example.com/sync" })
+
+      mock429({
+        ok: false,
+        status: 429,
+        headers: new Headers({ "Retry-After": "30" }),
+        text: () => Promise.resolve("Pull rate limited"),
+      } as Response)
+
+      await expect(transport.pull()).rejects.toThrow("rate limited")
+    })
+  })
+
+  describe("constructor globals check (GAP-18)", () => {
+    it("throws if fetch is not available", () => {
+      const origFetch = globalThis.fetch
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).fetch
+
+      expect(
+        () => new HttpTransport({ url: "https://api.example.com/sync" }),
+      ).toThrow("fetch")
+
+      globalThis.fetch = origFetch
     })
   })
 })

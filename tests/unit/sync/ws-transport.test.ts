@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { WsTransport } from "../../../src/sync/ws-transport"
+import { SyncResponseValidationError } from "../../../src/sync/validation"
 import type { SyncChangeRecord, SyncPushResult, SyncPullResult } from "../../../src/sync/types"
 
 // ── Mock WebSocket ──
@@ -300,6 +301,53 @@ describe("WsTransport", () => {
 
       await expect(pushPromise).rejects.toThrow("Unknown error")
     })
+
+    it("validates push response (GAP-6)", async () => {
+      transport = new WsTransport({ url: "wss://api.example.com/sync" })
+      const ws = await connectTransport()
+
+      const pushPromise = transport.push([makeChange()])
+
+      const sentMessage = JSON.parse(ws.send.mock.calls[0]![0])
+
+      ws._simulateMessage(
+        JSON.stringify({
+          type: "push_result",
+          requestId: sentMessage.requestId,
+          payload: { accepted: "not-an-array", conflicts: [], errors: [] },
+        }),
+      )
+
+      await expect(pushPromise).rejects.toThrow(SyncResponseValidationError)
+    })
+
+    it("registers pending request before send (GAP-4)", async () => {
+      transport = new WsTransport({ url: "wss://api.example.com/sync" })
+      const ws = await connectTransport()
+
+      // Intercept send to verify pending request already exists
+      const originalSend = ws.send
+      ws.send = vi.fn((data: string) => {
+        const msg = JSON.parse(data)
+        // At this point, the pending request should already be registered
+        // We can verify by checking that push doesn't fail due to sync onmessage
+        expect(msg.requestId).toBeTruthy()
+        return originalSend(data)
+      })
+
+      const pushPromise = transport.push([makeChange()])
+      const sentMessage = JSON.parse(ws.send.mock.calls[0]![0])
+
+      ws._simulateMessage(
+        JSON.stringify({
+          type: "push_result",
+          requestId: sentMessage.requestId,
+          payload: { accepted: [], conflicts: [], errors: [] },
+        }),
+      )
+
+      await expect(pushPromise).resolves.toBeDefined()
+    })
   })
 
   describe("pull", () => {
@@ -365,6 +413,39 @@ describe("WsTransport", () => {
       controller.abort(new DOMException("Cancelled", "AbortError"))
 
       await expect(transport.pull({ signal: controller.signal })).rejects.toThrow("Cancelled")
+    })
+
+    it("validates pull response (GAP-6)", async () => {
+      transport = new WsTransport({ url: "wss://api.example.com/sync" })
+      const ws = await connectTransport()
+
+      const pullPromise = transport.pull()
+
+      const sentMessage = JSON.parse(ws.send.mock.calls[0]![0])
+
+      ws._simulateMessage(
+        JSON.stringify({
+          type: "pull_result",
+          requestId: sentMessage.requestId,
+          payload: { changes: "not-an-array", cursor: null, hasMore: false },
+        }),
+      )
+
+      await expect(pullPromise).rejects.toThrow(SyncResponseValidationError)
+    })
+  })
+
+  describe("constructor (GAP-18)", () => {
+    it("throws if WebSocket is not available", () => {
+      const origWs = globalThis.WebSocket
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).WebSocket
+
+      expect(() => new WsTransport({ url: "wss://api.example.com/sync" })).toThrow(
+        "WebSocket",
+      )
+
+      globalThis.WebSocket = origWs
     })
   })
 

@@ -55,6 +55,9 @@ export type {
 // Sync
 export {
   ChangeTracker,
+  SyncResponseValidationError,
+  validatePullResult,
+  validatePushResult,
   clearCommittedSync,
   compactSyncQueue,
   ConflictResolverEngine,

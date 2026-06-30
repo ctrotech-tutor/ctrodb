@@ -6,6 +6,10 @@ import type {
   SyncPushResult,
   SyncTransport,
 } from "./types"
+import {
+  validatePullResult,
+  validatePushResult,
+} from "./validation"
 
 export interface WsTransportConfig {
   url: string
@@ -68,6 +72,11 @@ export class WsTransport implements SyncTransport {
   #connectionTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(config: WsTransportConfig) {
+    if (typeof WebSocket === "undefined") {
+      throw new Error(
+        "WsTransport requires WebSocket API. This environment does not support WebSocket.",
+      )
+    }
     this.#config = {
       url: config.url,
       headers: config.headers ?? {},
@@ -117,13 +126,25 @@ export class WsTransport implements SyncTransport {
 
     const requestId = this.#nextRequestId()
 
-    this.#send({
-      type: "push",
-      requestId,
-      payload: { changes },
-    })
+    // Register pending request BEFORE sending to avoid race where
+    // onmessage fires synchronously during send() (GAP-4)
+    const promise = this.#waitForResponse<SyncPushResult>(requestId, options?.signal)
 
-    return await this.#waitForResponse<SyncPushResult>(requestId, options?.signal)
+    try {
+      this.#send({
+        type: "push",
+        requestId,
+        payload: { changes },
+      })
+    } catch (error) {
+      // Clean up pending entry if send fails — the async function's
+      // rejected promise will propagate to the caller instead
+      this.#forgetPending(requestId)
+      throw error
+    }
+
+    const result = await promise
+    return validatePushResult(result)
   }
 
   async pull(options?: PullOptions): Promise<SyncPullResult> {
@@ -133,17 +154,28 @@ export class WsTransport implements SyncTransport {
 
     const requestId = this.#nextRequestId()
 
-    this.#send({
-      type: "pull",
-      requestId,
-      payload: {
-        cursor: options?.cursor,
-        collections: options?.collections,
-        batchSize: options?.batchSize,
-      },
-    })
+    // Register pending request BEFORE sending (GAP-4)
+    const promise = this.#waitForResponse<SyncPullResult>(requestId, options?.signal)
 
-    return await this.#waitForResponse<SyncPullResult>(requestId, options?.signal)
+    try {
+      this.#send({
+        type: "pull",
+        requestId,
+        payload: {
+          cursor: options?.cursor,
+          collections: options?.collections,
+          batchSize: options?.batchSize,
+        },
+      })
+    } catch (error) {
+      // Clean up pending entry if send fails — the async function's
+      // rejected promise will propagate to the caller instead
+      this.#forgetPending(requestId)
+      throw error
+    }
+
+    const result = await promise
+    return validatePullResult(result)
   }
 
   // ── Server push (real-time) ──
@@ -299,6 +331,14 @@ export class WsTransport implements SyncTransport {
   #nextRequestId(): string {
     this.#requestCounter++
     return `req_${this.#requestCounter}_${Date.now()}`
+  }
+
+  #forgetPending(requestId: string): void {
+    const pending = this.#pendingRequests.get(requestId)
+    if (pending) {
+      clearTimeout(pending.timer)
+      this.#pendingRequests.delete(requestId)
+    }
   }
 
   #rejectAllPending(error: Error): void {

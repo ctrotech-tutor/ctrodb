@@ -1,4 +1,5 @@
 export { ChangeTracker, SYNC_STORE } from "./change-tracker"
+export { SyncResponseValidationError, validatePullResult, validatePushResult } from "./validation"
 export { ConflictResolverEngine } from "./conflict-resolver"
 export {
   clearCommittedSync,

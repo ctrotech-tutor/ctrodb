@@ -6,6 +6,10 @@ import type {
   SyncPushResult,
   SyncTransport,
 } from "./types"
+import {
+  validatePullResult,
+  validatePushResult,
+} from "./validation"
 
 export interface HttpTransportConfig {
   url: string
@@ -23,6 +27,11 @@ export class HttpTransport implements SyncTransport {
   #connected = false
 
   constructor(config: HttpTransportConfig) {
+    if (typeof fetch === "undefined") {
+      throw new Error(
+        "HttpTransport requires fetch API. This environment does not support fetch.",
+      )
+    }
     this.#config = config
   }
 
@@ -67,12 +76,21 @@ export class HttpTransport implements SyncTransport {
         ...this.#config.fetchOptions,
       })
 
+      if (response.status === 429) {
+        const retryAfter = this.#parseRetryAfter(response)
+        const text = await response.text().catch(() => "Unknown error")
+        const err = new Error(`Sync push rate limited (429): ${text}`)
+        ;(err as unknown as Record<string, unknown>).retryAfter = retryAfter
+        throw err
+      }
+
       if (!response.ok) {
         const text = await response.text().catch(() => "Unknown error")
         throw new Error(`Sync push failed (${response.status}): ${text}`)
       }
 
-      return response.json() as Promise<SyncPushResult>
+      const data = await response.json()
+      return validatePushResult(data)
     } catch (error) {
       this.#connected = false
       throw error
@@ -113,16 +131,38 @@ export class HttpTransport implements SyncTransport {
         ...this.#config.fetchOptions,
       })
 
+      if (response.status === 429) {
+        const retryAfter = this.#parseRetryAfter(response)
+        const text = await response.text().catch(() => "Unknown error")
+        const err = new Error(`Sync pull rate limited (429): ${text}`)
+        ;(err as unknown as Record<string, unknown>).retryAfter = retryAfter
+        throw err
+      }
+
       if (!response.ok) {
         const text = await response.text().catch(() => "Unknown error")
         throw new Error(`Sync pull failed (${response.status}): ${text}`)
       }
 
-      return response.json() as Promise<SyncPullResult>
+      const data = await response.json()
+      return validatePullResult(data)
     } catch (error) {
       this.#connected = false
       throw error
     }
+  }
+
+  #parseRetryAfter(response: Response): number | undefined {
+    const header = response.headers.get("Retry-After")
+    if (!header) return undefined
+
+    const seconds = Number(header)
+    if (!Number.isNaN(seconds)) return seconds * 1000
+
+    const date = new Date(header).getTime()
+    if (!Number.isNaN(date)) return Math.max(0, date - Date.now())
+
+    return undefined
   }
 
   #mergeSignals(externalSignal?: AbortSignal): AbortSignal | undefined {
