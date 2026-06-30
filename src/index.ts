@@ -34,6 +34,7 @@ export type {
   HttpTransportConfig,
   PullOptions,
   PushOptions,
+  WsTransportConfig,
   SyncChangeRecord,
   SyncChangeStatus,
   SyncChangeType,
@@ -55,6 +56,7 @@ export {
   HttpTransport,
   SyncEngine,
   SYNC_STORE,
+  WsTransport,
 } from "./sync/index"
 export type {
   ChangeEvent,
