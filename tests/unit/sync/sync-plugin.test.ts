@@ -97,7 +97,9 @@ describe("syncPlugin", () => {
       expect(plugin).toBeDefined()
       expect(plugin.name).toBe("sync")
       expect(plugin.version).toBe("1.0.0")
-      expect(plugin.storeNames).toEqual([SYNC_STORE])
+      expect(plugin.storeNames).toEqual([
+        { name: SYNC_STORE, indexes: [{ field: "status" }, { field: "timestamp" }] },
+      ])
     })
 
     it("has no _engine before database init", () => {

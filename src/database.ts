@@ -9,6 +9,7 @@ import type { SyncEvent, SyncStatus } from "./sync/types"
 import type {
   ChangeEvent,
   CtroDBPlugin,
+  PluginStoreName,
   SchemaConfig,
   StorageAdapter,
   TransactionContext,
@@ -65,7 +66,7 @@ export class Database {
     if (this.#connected) return
 
     const pluginStoreNames = this.#plugins.flatMap(
-      (p: CtroDBPlugin & { storeNames?: string[] }) => p.storeNames ?? [],
+      (p: CtroDBPlugin & { storeNames?: PluginStoreName[] }) => p.storeNames ?? [],
     )
 
     const schemaConfig = this.#schema

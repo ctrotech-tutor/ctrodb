@@ -1,4 +1,11 @@
-import type { ID, QueryCondition, SchemaConfig, StorageAdapter, TransactionContext } from "../types"
+import type {
+  ID,
+  PluginStoreConfig,
+  QueryCondition,
+  SchemaConfig,
+  StorageAdapter,
+  TransactionContext,
+} from "../types"
 
 function openDB(
   dbName: string,
@@ -41,9 +48,20 @@ function createMigrationHandler(schema: SchemaConfig | null) {
     }
 
     if (schema.pluginStoreNames) {
-      for (const storeName of schema.pluginStoreNames) {
+      for (const entry of schema.pluginStoreNames) {
+        const storeName = typeof entry === "string" ? entry : entry.name
         if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName, { keyPath: "id" })
+          const store = db.createObjectStore(storeName, { keyPath: "id" })
+          if (typeof entry !== "string") {
+            const config = entry as PluginStoreConfig
+            if (config.indexes) {
+              for (const indexDef of config.indexes) {
+                store.createIndex(indexDef.field, indexDef.field, {
+                  unique: indexDef.unique || false,
+                })
+              }
+            }
+          }
         }
       }
     }

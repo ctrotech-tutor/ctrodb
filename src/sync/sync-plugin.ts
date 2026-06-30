@@ -11,7 +11,15 @@ export function syncPlugin(config: SyncPluginConfig): CtroDBPlugin & { _engine?:
   const plugin: CtroDBPlugin & { _engine?: SyncEngine } = {
     name: "sync",
     version: "1.0.0",
-    storeNames: [SYNC_STORE],
+    storeNames: [
+      {
+        name: SYNC_STORE,
+        indexes: [
+          { field: "status" },
+          { field: "timestamp" },
+        ],
+      },
+    ],
 
     async onDatabaseInit(db: Database) {
       tracker = new ChangeTracker(db._getAdapter())

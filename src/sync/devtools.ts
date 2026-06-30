@@ -45,16 +45,17 @@ export function createSyncEventLog(
 export async function inspectSyncQueue(db: Database): Promise<SyncQueueSnapshot> {
   assertSyncEngine(db)
 
-  const adapter = db._getAdapter()
-  const all = (await adapter.findAll(SYNC_STORE)) as SyncChangeRecord[]
+  const adapter: StorageAdapter = db._getAdapter()
 
-  const pending = all.filter((c) => c.status === "pending")
-  const syncing = all.filter((c) => c.status === "syncing")
-  const committed = all.filter((c) => c.status === "committed")
-  const failed = all.filter((c) => c.status === "failed")
+  const [pending, syncing, committed, failed] = await Promise.all([
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<SyncChangeRecord[]>,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("syncing"), []) as Promise<SyncChangeRecord[]>,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("committed"), []) as Promise<SyncChangeRecord[]>,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<SyncChangeRecord[]>,
+  ])
 
   const stats: SyncQueueStats = {
-    total: all.length,
+    total: pending.length + syncing.length + committed.length + failed.length,
     pending: pending.length,
     syncing: syncing.length,
     committed: committed.length,
@@ -96,8 +97,11 @@ export async function compactSyncQueue(db: Database): Promise<number> {
   assertSyncEngine(db)
 
   const adapter: StorageAdapter = db._getAdapter()
-  const all = (await adapter.findAll(SYNC_STORE)) as SyncChangeRecord[]
-  const pending = all.filter((c) => c.status === "pending" || c.status === "failed")
+  const [pendingArr, failedArr] = await Promise.all([
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<SyncChangeRecord[]>,
+    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<SyncChangeRecord[]>,
+  ])
+  const pending = [...pendingArr, ...failedArr]
 
   // Group by (collection, recordId)
   const groups = new Map<string, SyncChangeRecord[]>()
