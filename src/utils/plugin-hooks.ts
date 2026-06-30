@@ -25,12 +25,9 @@ export async function runHook(
       )
       if (result !== undefined) args[dataIndex] = result
     } else if (hookName === "onAfterUpdate") {
-      await (hook as (collection: string, id: unknown, record: unknown, oldRecord?: unknown) => void)(
-        args[0] as string,
-        args[1],
-        args[2],
-        args[3],
-      )
+      await (
+        hook as (collection: string, id: unknown, record: unknown, oldRecord?: unknown) => void
+      )(args[0] as string, args[1], args[2], args[3])
     } else if (hookName === "onAfterDelete") {
       await (hook as (collection: string, id: unknown, oldRecord?: unknown) => void)(
         args[0] as string,
@@ -42,7 +39,7 @@ export async function runHook(
     } else if (hookName === "onBeforeDelete") {
       await (hook as (collection: string, id: unknown) => void)(args[0] as string, args[1])
     } else {
-      await (hook as Function)(...args)
+      await (hook as (...args: never) => unknown)(...args)
     }
   }
 

@@ -35,9 +35,7 @@ export class QueryPlanner {
     _collectionSchema: CollectionSchema | null,
     indexes: IndexDefinition[],
   ): QueryPlan {
-    const idEquality = conditions.find(
-      (c) => c.field === "id" && c.op === "==",
-    )
+    const idEquality = conditions.find((c) => c.field === "id" && c.op === "==")
     if (idEquality) {
       const remaining = conditions.filter((c) => c !== idEquality)
       return {

@@ -10,13 +10,9 @@ import type {
 } from "./types"
 
 function assertSyncEngine(db: Database): void {
-  const plugin = db.plugin("sync") as
-    | { _engine?: { sync(): Promise<void> } }
-    | undefined
+  const plugin = db.plugin("sync") as { _engine?: { sync(): Promise<void> } } | undefined
   if (!plugin?._engine) {
-    throw new Error(
-      "Sync plugin not registered. Ensure syncPlugin() is added to Database config.",
-    )
+    throw new Error("Sync plugin not registered. Ensure syncPlugin() is added to Database config.")
   }
 }
 
@@ -46,9 +42,7 @@ export function createSyncEventLog(
   }
 }
 
-export async function inspectSyncQueue(
-  db: Database,
-): Promise<SyncQueueSnapshot> {
+export async function inspectSyncQueue(db: Database): Promise<SyncQueueSnapshot> {
   assertSyncEngine(db)
 
   const adapter = db._getAdapter()
@@ -80,9 +74,7 @@ export async function retryFailedSync(db: Database): Promise<number> {
     await tracker.markPending(change.id)
   }
 
-  const plugin = db.plugin("sync") as
-    | { _engine?: { sync(): Promise<void> } }
-    | undefined
+  const plugin = db.plugin("sync") as { _engine?: { sync(): Promise<void> } } | undefined
   if (plugin?._engine?.sync) {
     await plugin._engine.sync()
   }
@@ -105,9 +97,7 @@ export async function compactSyncQueue(db: Database): Promise<number> {
 
   const adapter: StorageAdapter = db._getAdapter()
   const all = (await adapter.findAll(SYNC_STORE)) as SyncChangeRecord[]
-  const pending = all.filter(
-    (c) => c.status === "pending" || c.status === "failed",
-  )
+  const pending = all.filter((c) => c.status === "pending" || c.status === "failed")
 
   // Group by (collection, recordId)
   const groups = new Map<string, SyncChangeRecord[]>()
@@ -130,10 +120,9 @@ export async function compactSyncQueue(db: Database): Promise<number> {
         const candidate = changes[i]
         if (!candidate) continue
         // Re-fetch to ensure record is still pending/failed (not syncing/committed)
-        const current = (await adapter.findById(
-          SYNC_STORE,
-          candidate.id,
-        )) as SyncChangeRecord | undefined
+        const current = (await adapter.findById(SYNC_STORE, candidate.id)) as
+          | SyncChangeRecord
+          | undefined
         if (current && (current.status === "pending" || current.status === "failed")) {
           await adapter.delete(SYNC_STORE, candidate.id)
           removed++

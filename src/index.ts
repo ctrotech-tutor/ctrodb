@@ -34,7 +34,6 @@ export type {
   HttpTransportConfig,
   PullOptions,
   PushOptions,
-  WsTransportConfig,
   SyncChangeRecord,
   SyncChangeStatus,
   SyncChangeType,
@@ -50,25 +49,26 @@ export type {
   SyncQueueStats,
   SyncStatus,
   SyncTransport,
+  WsTransportConfig,
 } from "./sync/index"
 
 // Sync
 export {
   ChangeTracker,
-  SyncResponseValidationError,
-  validatePullResult,
-  validatePushResult,
+  ConflictResolverEngine,
   clearCommittedSync,
   compactSyncQueue,
-  ConflictResolverEngine,
   createSyncEventLog,
   getSyncStats,
   HttpTransport,
   inspectSyncQueue,
   retryFailedSync,
-  SyncEngine,
   SYNC_STORE,
+  SyncEngine,
+  SyncResponseValidationError,
   syncPlugin,
+  validatePullResult,
+  validatePushResult,
   WsTransport,
 } from "./sync/index"
 export type {

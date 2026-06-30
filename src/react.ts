@@ -10,17 +10,9 @@ import {
 import type { Database } from "./database"
 import type { Model } from "./model/index"
 import type { QueryBuilder } from "./query/builder"
+import { createSyncEventLog, inspectSyncQueue, retryFailedSync } from "./sync/devtools"
+import type { SyncEvent, SyncQueueSnapshot, SyncStatus } from "./sync/types"
 import type { ChangeEvent, ID } from "./types"
-import type {
-  SyncEvent,
-  SyncQueueSnapshot,
-  SyncStatus,
-} from "./sync/types"
-import {
-  createSyncEventLog,
-  inspectSyncQueue,
-  retryFailedSync,
-} from "./sync/devtools"
 
 let defaultDb: Database | null = null
 
@@ -122,7 +114,7 @@ export function useDoc<T extends Record<string, unknown>>(
 ): DocResult<T> {
   const { data, loading, error } = useQuery<T>(
     collectionName,
-    (q) => q.where("id" as any, "==" as any, id as any),
+    (q) => q.where("id" as keyof T & string, "==", id),
     [id],
   )
   return { data: data[0], loading, error }
@@ -317,7 +309,7 @@ export function useSyncQueue(): SyncQueueResult {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | undefined>()
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true)
     setError(undefined)
     try {
@@ -328,7 +320,7 @@ export function useSyncQueue(): SyncQueueResult {
     } finally {
       setLoading(false)
     }
-  }
+  }, [db])
 
   useEffect(() => {
     refresh()
@@ -340,14 +332,16 @@ export function useSyncQueue(): SyncQueueResult {
     return () => {
       unsub()
     }
-  }, [db])
+  }, [db, refresh])
 
   return { snapshot, loading, error, refresh }
 }
 
 export function SyncDevPanel({
   maxEvents = 50,
-}: { maxEvents?: number } = {}): React.ReactElement | null {
+}: {
+  maxEvents?: number
+} = {}): React.ReactElement | null {
   const db = useDatabase()
   const { snapshot, loading, refresh } = useSyncQueue()
   const [eventLog, setEventLog] = useState<ReturnType<typeof createSyncEventLog> | null>(null)
@@ -405,6 +399,7 @@ export function SyncDevPanel({
       ? createElement(
           "button",
           {
+            type: "button",
             onClick: handleRetry,
             disabled: retrying,
             style: btnStyle,

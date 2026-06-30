@@ -42,7 +42,9 @@ export class MemoryAdapter implements StorageAdapter {
     const input = data as Record<string, unknown>
     const id = input.id as ID
     if (id === undefined) {
-      throw new Error("id is required. Use collection.create({ id: '...', ... }) or let the Collection layer generate one.")
+      throw new Error(
+        "id is required. Use collection.create({ id: '...', ... }) or let the Collection layer generate one.",
+      )
     }
 
     const record = { id, ...input }

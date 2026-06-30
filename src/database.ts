@@ -5,6 +5,7 @@ import { QueryExecutor } from "./query/executor"
 import { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
 import { Schema } from "./schema"
+import type { SyncEvent, SyncStatus } from "./sync/types"
 import type {
   ChangeEvent,
   CtroDBPlugin,
@@ -12,7 +13,6 @@ import type {
   StorageAdapter,
   TransactionContext,
 } from "./types"
-import type { SyncEvent, SyncStatus } from "./sync/types"
 
 export interface DatabaseConfig {
   name?: string
@@ -30,7 +30,7 @@ export class Database {
   #schema: Schema | null = null
   #planner = new QueryPlanner()
   #executor = new QueryExecutor()
-  #collections = new Map<string, Collection<any>>()
+  #collections = new Map<string, Collection<Record<string, unknown>>>()
   #plugins: CtroDBPlugin[] = []
   #changeSignal = new Signal<ChangeEvent | null>(null)
   #connected = false
@@ -181,9 +181,7 @@ export class Database {
   }
 
   async getFailedCount(): Promise<number> {
-    const p = this.plugin("sync") as
-      | { _engine?: { getFailedCount(): Promise<number> } }
-      | undefined
+    const p = this.plugin("sync") as { _engine?: { getFailedCount(): Promise<number> } } | undefined
     if (p?._engine?.getFailedCount) {
       return p._engine.getFailedCount()
     }

@@ -16,7 +16,7 @@ export function ftsPlugin(): CtroDBPlugin {
       indexer = new FTSIndexer(db._getAdapter())
     },
 
-    onCollectionInit(collection: Collection<any>) {
+    onCollectionInit(collection: Collection<Record<string, unknown>>) {
       const schema = collection._getSchema()
       const fields = schema?.getSearchableFields(collection.name)
       if (fields && fields.length > 0) {

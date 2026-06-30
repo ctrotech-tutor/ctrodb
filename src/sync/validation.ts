@@ -25,7 +25,11 @@ export function validatePushResult(result: unknown): SyncPushResult {
   }
 
   for (const item of r.accepted) {
-    if (!item || typeof item !== "object" || typeof (item as Record<string, unknown>).id !== "string") {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      typeof (item as Record<string, unknown>).id !== "string"
+    ) {
       throw new SyncResponseValidationError("Each 'accepted' entry must have a string 'id'")
     }
   }
@@ -41,7 +45,11 @@ export function validatePushResult(result: unknown): SyncPushResult {
   }
 
   for (const item of r.errors) {
-    if (!item || typeof item !== "object" || typeof (item as Record<string, unknown>).id !== "string") {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      typeof (item as Record<string, unknown>).id !== "string"
+    ) {
       throw new SyncResponseValidationError("Each 'errors' entry must have a string 'id'")
     }
   }

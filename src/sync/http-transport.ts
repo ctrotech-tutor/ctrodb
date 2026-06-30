@@ -6,10 +6,7 @@ import type {
   SyncPushResult,
   SyncTransport,
 } from "./types"
-import {
-  validatePullResult,
-  validatePushResult,
-} from "./validation"
+import { validatePullResult, validatePushResult } from "./validation"
 
 export interface HttpTransportConfig {
   url: string
@@ -28,9 +25,7 @@ export class HttpTransport implements SyncTransport {
 
   constructor(config: HttpTransportConfig) {
     if (typeof fetch === "undefined") {
-      throw new Error(
-        "HttpTransport requires fetch API. This environment does not support fetch.",
-      )
+      throw new Error("HttpTransport requires fetch API. This environment does not support fetch.")
     }
     this.#config = config
   }

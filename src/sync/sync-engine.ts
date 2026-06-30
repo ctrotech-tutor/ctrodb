@@ -1,5 +1,5 @@
-import type { ChangeEvent, ID, StorageAdapter } from "../types"
 import type { Database } from "../database"
+import type { ChangeEvent, ID, StorageAdapter } from "../types"
 import { ChangeTracker } from "./change-tracker"
 import { ConflictResolverEngine } from "./conflict-resolver"
 import type {
@@ -102,9 +102,7 @@ export class SyncEngine {
   async init(): Promise<void> {
     await this.#tracker.init()
 
-    this.#lastPullCursor = (await this.#adapter.getMetadata("sync:lastPullCursor")) as
-      | string
-      | null
+    this.#lastPullCursor = (await this.#adapter.getMetadata("sync:lastPullCursor")) as string | null
     this.#lastSyncAt = (await this.#adapter.getMetadata("sync:lastSyncAt")) as string | null
 
     if (this.#transport.connect) {
@@ -123,7 +121,11 @@ export class SyncEngine {
       this.#broadcastChannel = new BroadcastChannel("ctrodb:sync")
       this.#broadcastChannel.onmessage = (event: MessageEvent) => {
         if (event.data?.type === "change") {
-          this.#emit({ phase: "push" } as { phase: SyncPhase; progress?: SyncProgress; error?: Error })
+          this.#emit({ phase: "push" } as {
+            phase: SyncPhase
+            progress?: SyncProgress
+            error?: Error
+          })
           this.#db._emit({
             type: event.data.changeType,
             collection: event.data.collection,
@@ -416,8 +418,7 @@ export class SyncEngine {
 
       const result: SyncPullResult = await this.#transport.pull({
         cursor,
-        collections:
-          this.#config.collections.length > 0 ? this.#config.collections : undefined,
+        collections: this.#config.collections.length > 0 ? this.#config.collections : undefined,
         batchSize: this.#config.pullBatchSize,
         signal,
       })

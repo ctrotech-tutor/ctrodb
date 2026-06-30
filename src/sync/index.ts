@@ -1,5 +1,4 @@
 export { ChangeTracker, SYNC_STORE } from "./change-tracker"
-export { SyncResponseValidationError, validatePullResult, validatePushResult } from "./validation"
 export { ConflictResolverEngine } from "./conflict-resolver"
 export {
   clearCommittedSync,
@@ -9,10 +8,10 @@ export {
   inspectSyncQueue,
   retryFailedSync,
 } from "./devtools"
+export type { HttpTransportConfig } from "./http-transport"
 export { HttpTransport } from "./http-transport"
 export { SyncEngine } from "./sync-engine"
 export { syncPlugin } from "./sync-plugin"
-export { WsTransport } from "./ws-transport"
 export type {
   ConflictResolution,
   ConflictResolverFn,
@@ -35,5 +34,6 @@ export type {
   SyncStatus,
   SyncTransport,
 } from "./types"
-export type { HttpTransportConfig } from "./http-transport"
+export { SyncResponseValidationError, validatePullResult, validatePushResult } from "./validation"
 export type { WsTransportConfig } from "./ws-transport"
+export { WsTransport } from "./ws-transport"

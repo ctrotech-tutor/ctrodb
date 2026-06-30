@@ -123,7 +123,12 @@ export function validationPlugin(customRules?: ValidationRule[]): CtroDBPlugin {
     version: "1.0.0",
 
     onCollectionInit(collection: unknown) {
-      const col = collection as { name: string; _getSchema(): { collections: Record<string, { fields: Record<string, FieldDefinition> }> } | null }
+      const col = collection as {
+        name: string
+        _getSchema(): {
+          collections: Record<string, { fields: Record<string, FieldDefinition> }>
+        } | null
+      }
       const schema = col._getSchema()
       if (schema) {
         const colSchema = schema.collections[col.name]

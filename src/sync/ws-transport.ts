@@ -6,10 +6,7 @@ import type {
   SyncPushResult,
   SyncTransport,
 } from "./types"
-import {
-  validatePullResult,
-  validatePushResult,
-} from "./validation"
+import { validatePullResult, validatePushResult } from "./validation"
 
 export interface WsTransportConfig {
   url: string
@@ -38,14 +35,16 @@ const DEFAULT_REQUEST_TIMEOUT = 30000
 const DEFAULT_CONNECTION_TIMEOUT = 10000
 const MAX_BACKOFF_MS = 300000
 
-type ServerPushCallback = (changes: Array<{
-  id: string
-  collection: string
-  recordId: string | number
-  type: "create" | "update" | "delete"
-  data: Record<string, unknown> | null
-  timestamp: string
-}>) => void
+type ServerPushCallback = (
+  changes: Array<{
+    id: string
+    collection: string
+    recordId: string | number
+    type: "create" | "update" | "delete"
+    data: Record<string, unknown> | null
+    timestamp: string
+  }>,
+) => void
 
 export class WsTransport implements SyncTransport {
   readonly name = "websocket"
@@ -262,9 +261,7 @@ export class WsTransport implements SyncTransport {
   #send(msg: WsMessage): void {
     const ws = this.#ws
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      throw new Error(
-        `WebSocket not connected (readyState: ${ws?.readyState ?? -1})`,
-      )
+      throw new Error(`WebSocket not connected (readyState: ${ws?.readyState ?? -1})`)
     }
     this.#sendRaw(msg)
   }
@@ -359,7 +356,7 @@ export class WsTransport implements SyncTransport {
     this.#reconnectAttempts++
     const baseDelay = this.#config.reconnectIntervalMs
     const exponentialDelay = Math.min(
-      baseDelay * Math.pow(1.5, this.#reconnectAttempts - 1),
+      baseDelay * 1.5 ** (this.#reconnectAttempts - 1),
       MAX_BACKOFF_MS,
     )
     const jitter = exponentialDelay * (0.75 + Math.random() * 0.5)

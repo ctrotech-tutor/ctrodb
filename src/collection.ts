@@ -4,13 +4,7 @@ import type { QueryExecutor } from "./query/executor"
 import type { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
 import type { Schema } from "./schema"
-import type {
-  ChangeEvent,
-  CtroDBPlugin,
-  ID,
-  RelationDefinition,
-  StorageAdapter,
-} from "./types"
+import type { ChangeEvent, CtroDBPlugin, ID, RelationDefinition, StorageAdapter } from "./types"
 import { runHook } from "./utils/plugin-hooks"
 
 interface DatabaseShim {
@@ -198,10 +192,10 @@ export class Collection<T extends Record<string, unknown>> {
   with(...relations: string[]): QueryBuilder<T> {
     const qb = this.query()
     const origFetch = qb.fetch.bind(qb)
-    const self = this
+
     qb.fetch = async () => {
       const models = await origFetch()
-      await self.#eagerLoad(models, relations)
+      await this.#eagerLoad(models, relations)
       return models
     }
     return qb
@@ -242,10 +236,7 @@ export class Collection<T extends Record<string, unknown>> {
     return this.#adapter
   }
 
-  async #eagerLoad(
-    models: Array<Model<T> & T>,
-    relations: string[],
-  ): Promise<void> {
+  async #eagerLoad(models: Array<Model<T> & T>, relations: string[]): Promise<void> {
     if (models.length === 0 || !this.#schema) return
     for (const relationName of relations) {
       const def = this.#schema.getRelations(this.name)?.[relationName]
@@ -273,7 +264,9 @@ export class Collection<T extends Record<string, unknown>> {
       .map((m) => (m as Record<string, unknown>)[def.foreignKey] as ID | undefined)
       .filter((id): id is ID => id != null)
     if (fks.length === 0) return
-    const all = await (this.#db.collection(def.collection) as Collection<any>).getAll()
+    const all = await (
+      this.#db.collection(def.collection) as Collection<Record<string, unknown>>
+    ).getAll()
     const map = new Map(all.map((r) => [r.id, r]))
     for (const model of models) {
       const fk = (model as Record<string, unknown>)[def.foreignKey] as ID | undefined
@@ -294,7 +287,9 @@ export class Collection<T extends Record<string, unknown>> {
   ): Promise<void> {
     const ids = models.map((m) => m.id).filter((id): id is ID => id != null)
     if (ids.length === 0) return
-    const all = await (this.#db.collection(def.collection) as Collection<any>).getAll()
+    const all = await (
+      this.#db.collection(def.collection) as Collection<Record<string, unknown>>
+    ).getAll()
     const grouped = new Map<ID, typeof all>()
     for (const r of all) {
       const fk = (r as Record<string, unknown>)[def.foreignKey] as ID | undefined
@@ -319,7 +314,9 @@ export class Collection<T extends Record<string, unknown>> {
   ): Promise<void> {
     const ids = models.map((m) => m.id).filter((id): id is ID => id != null)
     if (ids.length === 0) return
-    const all = await (this.#db.collection(def.collection) as Collection<any>).getAll()
+    const all = await (
+      this.#db.collection(def.collection) as Collection<Record<string, unknown>>
+    ).getAll()
     const grouped = new Map<ID, (typeof all)[0]>()
     for (const r of all) {
       const fk = (r as Record<string, unknown>)[def.foreignKey] as ID | undefined
