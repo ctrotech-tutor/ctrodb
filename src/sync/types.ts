@@ -121,3 +121,30 @@ export interface SyncEvent {
   progress?: SyncProgress
   timestamp: string
 }
+
+// ── DevTools types ──
+
+export interface SyncQueueStats {
+  total: number
+  pending: number
+  syncing: number
+  committed: number
+  failed: number
+}
+
+export interface SyncQueueSnapshot {
+  pending: SyncChangeRecord[]
+  syncing: SyncChangeRecord[]
+  committed: SyncChangeRecord[]
+  failed: SyncChangeRecord[]
+  stats: SyncQueueStats
+}
+
+export interface SyncEventLogEntry {
+  phase: SyncPhase
+  changes?: number
+  conflicts?: number
+  progress?: SyncProgress
+  error?: Error
+  timestamp: string
+}
