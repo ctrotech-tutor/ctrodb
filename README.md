@@ -19,8 +19,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ctrotech-tutor/ctrodb/releases"><img src="https://img.shields.io/github/v/release/ctrotech-tutor/ctrodb?display_name=tag&style=flat&label=version&color=6366f1" alt="version" /></a>
   <a href="https://www.npmjs.com/package/ctrodb"><img src="https://img.shields.io/badge/dependencies-zero-brightgreen?style=flat" alt="zero dependencies" /></a>
+  <a href="https://www.npmjs.com/package/ctrodb"><img src="https://img.shields.io/npm/dm/ctrodb?style=flat&label=downloads&color=6366f1" alt="downloads" /></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/types-TypeScript%20strict-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" /></a>
   <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/main.yml?style=flat&branch=main&label=build" alt="build" /></a>
   <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/ci.yml?style=flat&branch=main&label=CI" alt="ci" /></a>
