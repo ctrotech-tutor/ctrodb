@@ -28,12 +28,14 @@ class MockTransport implements SyncTransport {
   pushFail: Error | null = null
   pullFail: Error | null = null
   connectFail: Error | null = null
+  pushedBatches: SyncChangeRecord[][] = []
 
   async push(
-    _changes: SyncChangeRecord[],
+    changes: SyncChangeRecord[],
     _options?: PushOptions,
   ): Promise<SyncPushResult> {
     this.pushCallCount++
+    this.pushedBatches.push(changes)
     if (this.pushFail) throw this.pushFail
     return this.pushResult
   }
@@ -327,14 +329,19 @@ describe("SyncEngine", () => {
 
       await engine.sync()
 
-      // Only 2 out of 3 were pushed
+      // Only 2 out of 3 were sent in the first push batch
+      expect(transport.pushCallCount).toBeGreaterThanOrEqual(1)
+      expect(transport.pushedBatches[0].length).toBe(2)
+
+      // Unacknowledged changes roll back to pending instead of leaking as
+      // "syncing" forever (the leak this fix eliminates)
       const adapter = db._getAdapter()
       const tracker = new ChangeTracker(adapter)
       const all = await tracker.getAll()
-      const syncingOrCommitted = all.filter(
-        (c) => c.status === "syncing" || c.status === "committed",
-      )
-      expect(syncingOrCommitted.length).toBe(2)
+      const stuckSyncing = all.filter((c) => c.status === "syncing")
+      expect(stuckSyncing.length).toBe(0)
+      const pending = all.filter((c) => c.status === "pending")
+      expect(pending.length).toBe(3)
     })
 
     it("is idempotent — concurrent sync calls are no-ops", async () => {

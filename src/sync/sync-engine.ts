@@ -326,6 +326,21 @@ export class SyncEngine {
       await this.#tracker.markFailed(err.id, err.error)
     }
 
+    // Any change the transport result did not acknowledge (not accepted,
+    // not conflicted, not errored) must roll back to pending. Otherwise it
+    // stays stuck in "syncing", is never retried, and hides from the pull
+    // conflict guard as a leaked record.
+    const handled = new Set<string>([
+      ...result.accepted.map((a) => a.id),
+      ...result.conflicts.map((c) => c.changeId),
+      ...result.errors.map((e) => e.id),
+    ])
+    for (const id of batchIds) {
+      if (!handled.has(id)) {
+        await this.#tracker.markPending(id)
+      }
+    }
+
     return {
       pushed: result.accepted.length,
       pulled: 0,
@@ -405,6 +420,14 @@ export class SyncEngine {
     let lastCursor = cursor
     let pages = 0
 
+    // Snapshot pending local changes once, so a remote snapshot can never
+    // silently clobber a local edit the server has not accepted yet.
+    const pendingChanges = await this.#tracker.getPending()
+    const pendingByKey = new Map<string, SyncChangeRecord>()
+    for (const change of pendingChanges) {
+      pendingByKey.set(this.#changeKey(change.collection, change.recordId), change)
+    }
+
     while (hasMore) {
       if (signal.aborted) {
         throw new DOMException("Sync aborted", "AbortError")
@@ -424,7 +447,7 @@ export class SyncEngine {
       })
 
       for (const change of result.changes) {
-        await this.#applyRemoteChange(change)
+        await this.#applyRemoteChange(change, pendingByKey)
       }
 
       pulled += result.changes.length
@@ -438,15 +461,50 @@ export class SyncEngine {
     return { pulled, failed: 0 }
   }
 
-  async #applyRemoteChange(change: {
-    id: string
-    collection: string
-    recordId: ID
-    type: "create" | "update" | "delete"
-    data: Record<string, unknown> | null
-    timestamp: string
-  }): Promise<void> {
+  #changeKey(collection: string, recordId: ID): string {
+    return `${collection}:${String(recordId)}`
+  }
+
+  #parseTs(ts: string): number {
+    const parsed = new Date(ts).getTime()
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+
+  async #applyRemoteChange(
+    change: {
+      id: string
+      collection: string
+      recordId: ID
+      type: "create" | "update" | "delete"
+      data: Record<string, unknown> | null
+      timestamp: string
+    },
+    pendingByKey: Map<string, SyncChangeRecord>,
+  ): Promise<void> {
     const adapter = this.#adapter
+    const pendingLocal = pendingByKey.get(this.#changeKey(change.collection, change.recordId))
+
+    if (pendingLocal) {
+      // A remote snapshot must not overwrite a local edit that is still
+      // queued (pending or failed) unless the remote change is at least as
+      // new as the local one. Otherwise the pull would clobber the local
+      // change and lose the edit. The push cycle owns that record; a remote
+      // change strictly older than the pending local change is a replay,
+      // not an update. Ties go to the remote, matching ConflictResolver's
+      // LWW behavior (remote wins on equal timestamps).
+      const localTs = this.#parseTs(pendingLocal.timestamp)
+      const remoteTs = this.#parseTs(change.timestamp)
+      if (remoteTs < localTs) {
+        return
+      }
+      // Remote is newer or equal → let it win (LWW), and drop the stale
+      // pending change so the next push does not resurrect it.
+      await this.#tracker.markCommitted(pendingLocal.id, {
+        serverTimestamp: change.timestamp,
+      })
+      pendingByKey.delete(this.#changeKey(change.collection, change.recordId))
+    }
+
     const local = await adapter.findById(change.collection, change.recordId)
 
     switch (change.type) {

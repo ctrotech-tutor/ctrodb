@@ -1,4 +1,4 @@
-export const VERSION = "1.3.0"
+export const VERSION = "1.4.0"
 
 export { createAdapter, IndexedDBAdapter, MemoryAdapter } from "./adapter/index"
 export { Collection } from "./collection"
