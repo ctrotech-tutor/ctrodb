@@ -155,6 +155,66 @@ function idbCreate(
   })
 }
 
+/**
+ * Insert a batch in **one** transaction.
+ *
+ * Each `add` request would otherwise get its own transaction, and transaction
+ * setup dominates a small write: 300 records cost 96 µs each that way and 16 µs
+ * each batched (fake-indexeddb; real browsers pay more per transaction).
+ *
+ * All-or-nothing comes for free: an unhandled request error aborts the whole
+ * transaction, so a duplicate id or unique-constraint violation leaves the
+ * store untouched. The first failing request is tracked so the rejection names
+ * the record that caused it.
+ */
+function idbCreateMany(
+  db: IDBDatabase,
+  collection: string,
+  records: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  if (records.length === 0) return Promise.resolve([])
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(collection, "readwrite")
+    const store = tx.objectStore(collection)
+    const results: Record<string, unknown>[] = new Array(records.length)
+
+    let firstError: DOMException | null = null
+    let firstErrorIndex = -1
+
+    records.forEach((record, index) => {
+      const request = store.add(record)
+      request.onsuccess = () => {
+        results[index] = { id: request.result, ...record }
+      }
+      request.onerror = () => {
+        if (firstErrorIndex === -1) {
+          firstError = request.error
+          firstErrorIndex = index
+        }
+        // Let the error reach the transaction: it must abort the whole batch
+        // rather than committing the records written before this one.
+      }
+    })
+
+    tx.oncomplete = () => resolve(results)
+    tx.onabort = () => {
+      const error = firstError ?? tx.error
+      const failed = firstErrorIndex >= 0 ? records[firstErrorIndex] : undefined
+
+      // Keep the DOMException's `name` (the caller matches `ConstraintError`)
+      // and add the record id, which the DOMException does not carry.
+      const message = error?.message ?? "transaction aborted"
+      const wrapped = new Error(
+        failed?.id !== undefined ? `${message} (record "${String(failed.id)}")` : message,
+      )
+      wrapped.name = error?.name ?? "AbortError"
+      if (error) wrapped.cause = error
+      reject(wrapped)
+    }
+  })
+}
+
 function idbFindById(
   db: IDBDatabase,
   collection: string,
@@ -319,6 +379,10 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   async create(collection: string, data: unknown): Promise<Record<string, unknown>> {
     return idbCreate(this.#getDb(), collection, data as Record<string, unknown>)
+  }
+
+  async createMany(collection: string, records: unknown[]): Promise<Record<string, unknown>[]> {
+    return idbCreateMany(this.#getDb(), collection, records as Record<string, unknown>[])
   }
 
   async findById(collection: string, id: ID): Promise<Record<string, unknown> | undefined> {

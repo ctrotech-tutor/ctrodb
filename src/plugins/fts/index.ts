@@ -101,6 +101,12 @@ export function ftsPlugin(): CtroDBPlugin {
       await indexer.indexRecord(_collection, record as Record<string, unknown>, fields)
     },
 
+    async onAfterCreateMany(_collection: string, records: unknown[]) {
+      const fields = searchableFieldsMap.get(_collection)
+      if (!fields) return
+      await indexer.indexRecords(_collection, records as Record<string, unknown>[], fields)
+    },
+
     async onAfterUpdate(_collection: string, _id: ID, record: unknown, oldRecord?: unknown) {
       const fields = searchableFieldsMap.get(_collection)
       if (!fields || !oldRecord) return

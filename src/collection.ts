@@ -135,6 +135,143 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     return model
   }
 
+  /**
+   * Insert many records as one operation.
+   *
+   * Batch inserts exist because the per-record path is dominated by per-record
+   * overhead, not by the data: on IndexedDB every `create()` opens its own
+   * transaction, and every indexed document costs one index write per token.
+   * `createMany()` validates the whole batch first, writes it in a single
+   * adapter operation (one transaction where the adapter supports it), then
+   * emits one `create` event per record — so listeners, hooks and React state
+   * see exactly what they would have seen from N `create()` calls.
+   *
+   * All-or-nothing: if validation fails or any record violates a constraint,
+   * nothing is written. A batch containing a duplicate id is rejected before
+   * the adapter is touched.
+   */
+  async createMany(
+    records: readonly (Omit<T, "id"> & { id?: ID })[],
+    context: WriteContext = LOCAL_WRITE,
+  ): Promise<ModelInstance<T, R>[]> {
+    if (records.length === 0) return []
+
+    // Pass 1 — ids, defaults and validation for the whole batch. Doing this
+    // before any hook runs means a bad record is reported without side effects
+    // from the records that happened to be earlier in the array.
+    const stamped: Record<string, unknown>[] = []
+    const ids = new Set<ID>()
+
+    for (const [index, data] of records.entries()) {
+      const raw = { ...data } as Record<string, unknown>
+      if (raw.id === undefined) raw.id = this.#generateId()
+
+      const id = raw.id as ID
+      if (ids.has(id)) {
+        throw new Error(
+          `createMany() received the same id twice in "${this.name}": "${String(id)}" (index ${index})`,
+        )
+      }
+      ids.add(id)
+
+      let processed: Record<string, unknown> = raw
+      if (this.#schema) {
+        processed = this.#schema.applyDefaults(this.name, processed)
+        this.#schema.validate(this.name, processed)
+      }
+      stamped.push(processed)
+    }
+
+    // Pass 2 — hooks, in order, exactly as `create()` would run them.
+    const prepared: Record<string, unknown>[] = []
+    for (const processed of stamped) {
+      prepared.push(
+        (await runHook(this.#plugins, "onBeforeCreate", this.name, processed, context)) as Record<
+          string,
+          unknown
+        >,
+      )
+    }
+
+    let written: T[]
+    try {
+      written = this.#adapter.createMany
+        ? ((await this.#adapter.createMany(this.name, prepared)) as T[])
+        : await this.#writeSequentially(prepared)
+    } catch (error) {
+      throw await this.#normalizeCreateError(error, prepared)
+    }
+
+    // Per plugin: a plugin that can index a batch gets one call, everything else
+    // keeps its per-record hook. Dispatching per plugin (rather than globally)
+    // is what keeps a batching plugin and a simple one correct in the same app.
+    for (const plugin of this.#plugins) {
+      if (typeof plugin.onAfterCreateMany === "function") {
+        await runAfterHook([plugin], "onAfterCreateMany", [this.name, written, context])
+      } else {
+        for (const record of written) {
+          await runAfterHook([plugin], "onAfterCreate", [this.name, record, context])
+        }
+      }
+    }
+
+    const models = written.map((record) => this._toModel(record))
+
+    for (const record of written) {
+      const event: ChangeEvent = {
+        type: "create",
+        collection: this.name,
+        recordId: (record as Record<string, unknown>).id as ID,
+        record,
+      }
+      this.#changeSignal.value = event
+      this.#db._emit(event)
+    }
+
+    return models
+  }
+
+  /**
+   * Fallback for adapters without `createMany`.
+   *
+   * Not atomic — an adapter that cannot batch cannot roll back either — so a
+   * failure leaves the records written so far in place. Documented, and only
+   * reachable for third-party adapters: both shipped adapters implement it.
+   */
+  async #writeSequentially(prepared: Record<string, unknown>[]): Promise<T[]> {
+    const written: T[] = []
+    for (const record of prepared) {
+      written.push((await this.#adapter.create(this.name, record)) as T)
+    }
+    return written
+  }
+
+  /** Same contract as `create()`, for a whole batch. */
+  async #normalizeCreateError(error: unknown, prepared: Record<string, unknown>[]): Promise<Error> {
+    const message = error instanceof Error ? error.message : String(error)
+    const isDuplicate =
+      (error instanceof Error && error.name === "ConstraintError") ||
+      /already exists|unique constraint/i.test(message)
+
+    if (!isDuplicate) return error instanceof Error ? error : new Error(message)
+
+    // Which record was already there? Asking is only worth it on failure, and
+    // it turns a driver-specific message into an actionable one.
+    const ids = prepared.map((record) => record.id as ID)
+    const existing = this.#adapter.findByIds
+      ? await this.#adapter.findByIds(this.name, ids)
+      : await Promise.all(ids.map((id) => this.#adapter.findById(this.name, id)))
+
+    const takenIndex = existing.findIndex((record) => record !== undefined)
+    const normalized = new Error(
+      takenIndex >= 0
+        ? `Record "${String(ids[takenIndex])}" already exists in "${this.name}"`
+        : `Unique constraint failed in "${this.name}": ${message}`,
+    )
+    normalized.cause = error
+    return normalized
+  }
+
   async get(id: ID): Promise<ModelInstance<T, R> | undefined> {
     const record = (await this.#adapter.findById(this.name, id)) as T | undefined
     if (!record) return undefined

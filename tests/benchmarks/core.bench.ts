@@ -96,4 +96,19 @@ describe("writes", () => {
     const id = `item-${String(counter % SIZE).padStart(6, "0")}`
     await items.update(id, { score: counter % 100 })
   })
+
+  bench("create x100 (loop)", async () => {
+    for (let i = 0; i < 100; i++) {
+      counter++
+      await items.create({ id: `loop-${counter}`, name: "n", group: "g0", score: 1 })
+    }
+  })
+
+  bench("createMany x100", async () => {
+    const batch = Array.from({ length: 100 }, () => {
+      counter++
+      return { id: `batch-${counter}`, name: "n", group: "g0", score: 1 }
+    })
+    await items.createMany(batch)
+  })
 })

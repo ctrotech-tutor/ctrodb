@@ -240,6 +240,68 @@ export class MemoryAdapter implements StorageAdapter {
     return { ...record }
   }
 
+  /**
+   * Insert a batch atomically.
+   *
+   * Every check runs before the first write, and nothing in between awaits, so
+   * a rejected batch leaves the collection exactly as it was. The unique-index
+   * check builds one value set per field instead of re-scanning the store per
+   * record, which is what a per-record loop costs.
+   */
+  async createMany(collection: string, records: unknown[]): Promise<Record<string, unknown>[]> {
+    this.#ensureCollection(collection)
+    const store = this.#data.get(collection)
+    if (!store) throw new Error(`Collection "${collection}" not initialized`)
+
+    const prepared: Record<string, unknown>[] = []
+    const ids = new Set<ID>()
+
+    for (const data of records) {
+      const input = data as Record<string, unknown>
+      const id = input.id as ID
+      if (id === undefined) {
+        throw new Error(
+          "id is required. Use collection.create({ id: '...', ... }) or let the Collection layer generate one.",
+        )
+      }
+      // Includes duplicates *within* the batch: IndexedDB rejects those too.
+      if (store.has(id) || ids.has(id)) {
+        throw new Error(`Record "${id}" already exists in "${collection}"`)
+      }
+      ids.add(id)
+      prepared.push({ id, ...input })
+    }
+
+    const uniqueFields = this.#uniqueIndexes.get(collection)
+    if (uniqueFields && uniqueFields.length > 0) {
+      for (const field of uniqueFields) {
+        const taken = new Set<unknown>()
+        for (const record of store.values()) {
+          const value = record[field]
+          if (value !== undefined && value !== null) taken.add(value)
+        }
+        for (const record of prepared) {
+          const value = record[field]
+          if (value === undefined || value === null) continue
+          if (taken.has(value)) {
+            throw new Error(
+              `Unique constraint failed on "${collection}.${field}": value ${JSON.stringify(value)} already exists`,
+            )
+          }
+          taken.add(value)
+        }
+      }
+    }
+
+    for (const record of prepared) {
+      const id = record.id as ID
+      store.set(id, record)
+      this.#applyIndexes(collection, id, undefined, record)
+    }
+
+    return prepared.map((record) => ({ ...record }))
+  }
+
   async findById(collection: string, id: ID): Promise<Record<string, unknown> | undefined> {
     const store = this.#data.get(collection)
     if (!store) return undefined

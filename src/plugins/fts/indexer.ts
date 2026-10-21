@@ -81,6 +81,51 @@ export class FTSIndexer {
     await this.#addPostings(collection, docId, this.#extractTokens(record, searchableFields))
   }
 
+  /**
+   * Index a batch, writing the postings in one adapter operation.
+   *
+   * The per-record path costs one `create` per token; a batch costs one
+   * `createMany`. Postings are immutable and independent, so a batch of them is
+   * exactly the shape a bulk write wants.
+   */
+  async indexRecords(
+    collection: string,
+    records: Record<string, unknown>[],
+    searchableFields: string[],
+  ): Promise<void> {
+    const postings: FtsPosting[] = []
+
+    for (const record of records) {
+      const docId = record.id as ID | undefined
+      if (docId === undefined) continue
+      for (const token of this.#extractTokens(record, searchableFields)) {
+        postings.push({ id: postingId(collection, token, docId), collection, token, docId })
+      }
+    }
+
+    if (postings.length === 0) return
+
+    if (this.#adapter.createMany) {
+      try {
+        await this.#adapter.createMany(FTS_STORE, postings)
+        return
+      } catch (error) {
+        // Re-indexing an already-indexed document: the batch insert aborted
+        // without writing anything, so the idempotent per-posting path below is
+        // still correct — just slower. Anything else is a real failure.
+        if (!isDuplicateError(error)) throw error
+      }
+    }
+
+    for (const posting of postings) {
+      try {
+        await this.#adapter.create(FTS_STORE, posting)
+      } catch (error) {
+        if (!isDuplicateError(error)) throw error
+      }
+    }
+  }
+
   /** Remove every posting for a document: one delete per token, no reads. */
   async removeRecord(
     collection: string,
