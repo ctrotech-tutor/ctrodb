@@ -299,7 +299,14 @@ export class SyncEngine {
   // ── Push ──
 
   async #pushChanges(signal: AbortSignal): Promise<SyncProgress> {
-    const pending = await this.#tracker.getPending()
+    // Respect `retryMaxAttempts`: a change that has failed that many times is
+    // parked as a dead letter instead of being retried forever (it stays
+    // visible through inspectSyncQueue().failed and can be retried manually).
+    // Before this, the option was accepted by the config type but never read.
+    const maxAttempts = this.#config.retryMaxAttempts
+    const pending = (await this.#tracker.getPending()).filter(
+      (change) => change.status !== "failed" || (change.retries ?? 0) < maxAttempts,
+    )
 
     if (pending.length === 0) {
       return { pushed: 0, pulled: 0, conflicts: 0, failed: 0 }

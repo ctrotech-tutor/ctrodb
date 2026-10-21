@@ -7,7 +7,7 @@
  * For IndexedDB in Node, use fake-indexeddb or similar polyfills.
  */
 
-import { Database } from "../../dist/index.js"
+import { Database } from "../../dist/index.mjs"
 
 const schema = {
   version: 1,
@@ -74,7 +74,7 @@ async function main() {
   console.log("✓ Remaining users:", remaining.length)
 
   // --- Plugin: FTS ---
-  const { ftsPlugin } = await import("../../dist/index.js")
+  const { ftsPlugin } = await import("../../dist/index.mjs")
   const db2 = new Database({
     adapter: "memory",
     schema: {

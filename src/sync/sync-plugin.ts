@@ -30,6 +30,13 @@ export function syncPlugin(config: SyncPluginConfig): CtroDBPlugin & { _engine?:
       await engine.init()
     },
 
+    async onDatabaseDestroy() {
+      // Stops the auto-sync interval, backoff/debounce timers and the
+      // BroadcastChannel, and disconnects the transport. Without this the
+      // engine outlived db.disconnect() and kept the process alive (M-10).
+      await engine.destroy()
+    },
+
     onCollectionInit() {
       // Collections register at runtime. The sync engine applies
       // the collections filter (SyncPluginConfig.collections) at sync time.

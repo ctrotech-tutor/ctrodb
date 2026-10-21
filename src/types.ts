@@ -133,7 +133,9 @@ export interface CtroDBPlugin {
   name: string
   version?: string
   storeNames?: PluginStoreName[]
-  onDatabaseInit?(db: unknown): void
+  onDatabaseInit?(db: unknown): void | Promise<void>
+  /** Called from `db.disconnect()` in reverse registration order. */
+  onDatabaseDestroy?(db: unknown): void | Promise<void>
   onCollectionInit?(collection: unknown): void
   onBeforeCreate?(collection: string, data: unknown, context?: WriteContext): unknown
   onAfterCreate?(collection: string, record: unknown, context?: WriteContext): void

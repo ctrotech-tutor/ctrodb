@@ -70,8 +70,31 @@ browser storage globals. Both changes were driven by the Phase 1 audit
   IndexedDB. `orWhere()` queries now honour `sort()`, `offset()` and `limit()`,
   which were previously dropped.
 
+- **Schema declarations are enforced (M-02, M-03).** A `validate` function is
+  now called, and `unique: true` on a field becomes a unique index so both
+  adapters reject duplicates. A field declared unique whose index is not unique
+  now fails at schema construction instead of being silently ignored.
+- **`retryMaxAttempts` works (M-07).** Changes that fail that many times are
+  parked as dead letters (visible in `inspectSyncQueue().failed`, retryable
+  with `retryFailedSync`) instead of retrying forever.
+- **`db.disconnect()` shuts plugins down (M-10).** Plugins receive a new
+  `onDatabaseDestroy` hook in reverse order; the sync engine's auto-sync
+  interval, backoff/debounce timers, BroadcastChannel and transport are
+  released. Before, an idle process kept running after `disconnect()`.
+- **A failed `connect()` no longer leaves a connected-looking instance
+  (M-01).** If a plugin's `onDatabaseInit` throws, the adapter is closed, the
+  instance stays disconnected, and the error propagates.
+- **Packaging resolves cleanly in every module mode (M-17).** `exports` now
+  declares per-condition types, `typesVersions` covers node10, and
+  `@arethetypeswrong/cli` reports **no problems** for both entry points across
+  node10 / node16-CJS / node16-ESM / bundler.
+
 ### Added
 - `QueryRange`, `QueryKey`, `WriteContext` and `WriteOrigin` public types.
+- `onDatabaseDestroy` plugin hook.
+- `tests/benchmarks/core.bench.ts` — `npm run bench` works again (it previously
+  failed with "No benchmark files found"), with baselines for get, count, index
+  equality/range, pagination and writes over 10k records.
 - `TransactionCollection` type: `TransactionContext.collection()` is properly
   typed instead of returning `unknown`.
 - `createQueryRange`, `equalityRange`, `queryRangeContains`, `compareQueryKeys`

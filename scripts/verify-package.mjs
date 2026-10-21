@@ -25,12 +25,18 @@ const requiredFiles = new Set([
   "dist/react/react.d.ts",
 ])
 
-for (const [subpath, entry] of Object.entries(pkg.exports ?? {})) {
-  for (const [condition, target] of Object.entries(entry)) {
-    requiredFiles.add(String(target).replace(/^\.\//, ""))
-    void subpath
-    void condition
+/** Collect every file referenced by `exports`, including nested conditions. */
+function collectTargets(entry) {
+  if (typeof entry === "string") {
+    requiredFiles.add(entry.replace(/^\.\//, ""))
+    return
   }
+  for (const value of Object.values(entry ?? {})) collectTargets(value)
+}
+
+for (const entry of Object.values(pkg.exports ?? {})) collectTargets(entry)
+for (const versions of Object.values(pkg.typesVersions ?? {})) {
+  for (const targets of Object.values(versions)) collectTargets(targets)
 }
 
 for (const file of requiredFiles) {
