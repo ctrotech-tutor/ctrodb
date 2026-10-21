@@ -3,6 +3,35 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.13.1] - 2026-10-21
+
+### Performance
+- **Memory-adapter range queries now seek sorted index keys instead of walking
+  every distinct key.** A warm sorted-key cache is binary-searched to locate
+  inclusive/exclusive range bounds; writes invalidate the cache only when a key
+  bucket is created or removed. Cache invalidation also runs for updates and
+  transaction rollback through the same index-maintenance path.
+- **Broad range queries adapt to sequential scans.** When a range selects at
+  least 40% of the records and there are no post-filters, the adapter uses its
+  sequential scan path rather than doing random Map lookups for most rows.
+  Selective queries keep the index path; queries with post-filters are not
+  diverted because a broad primary range may still become selective after them.
+
+  Warmed, 20,000-row memory-adapter probe (unique numeric index; median of 80
+  reads after warmup): one-row range **0.025 ms indexed vs 0.974 ms scanned
+  (39x)**; 1% range **0.115 ms vs 0.942 ms (8.2x)**; 10% range **0.575 ms vs
+  1.158 ms (2.0x)**. The old unsorted Map traversal was slower than a full scan
+  even for a one-row range (0.802 ms vs 0.761 ms). Broad ranges now choose the
+  sequential path rather than paying that index overhead.
+
+### Verification
+- Added cache-boundary and mutation tests: inclusive/exclusive bounds, new
+  bucket creation, key-moving update, and deletion after cache construction.
+- Added selective and broad indexed-vs-scan cases to `tests/benchmarks/core.bench.ts`.
+- Added a CI performance guard: a selective indexed range must beat a scan by at
+  least 3x. Observed 47x on this run; `npm run perf:guard` passes.
+- `npm run verify` — 715 tests / 42 files; `npm run perf:guard` separately passes.
+
 ## [1.13.0] - 2026-10-21
 
 ### Fixed

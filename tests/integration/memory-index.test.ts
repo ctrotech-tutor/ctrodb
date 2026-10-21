@@ -60,6 +60,37 @@ describe("memory adapter indexes", () => {
     expect(viaIndex.map((record) => String(record.id)).sort()).toEqual(expected)
   })
 
+  it("uses exclusive and inclusive bounds on a cached sorted range index", async () => {
+    const items = db.collection("items")
+    for (const score of [10, 20, 30, 40]) {
+      await items.create({ id: `score-${score}`, name: `n${score}`, score, group: "g" })
+    }
+
+    // First range query constructs the sorted-key cache.
+    expect(
+      (await items.query().where("score", ">", 20).fetch()).map((r) => r.score).sort(),
+    ).toEqual([30, 40])
+    expect(
+      (await items.query().where("score", "<=", 30).fetch()).map((r) => r.score).sort(),
+    ).toEqual([10, 20, 30])
+
+    // Creating and removing distinct keys must invalidate the cached key list.
+    await items.create({ id: "score-25", name: "n25", score: 25, group: "g" })
+    expect(
+      (await items.query().where("score", ">", 20).fetch()).map((r) => r.score).sort(),
+    ).toEqual([25, 30, 40])
+
+    await items.update("score-40", { score: 35 })
+    expect(
+      (await items.query().where("score", ">", 20).fetch()).map((r) => r.score).sort(),
+    ).toEqual([25, 30, 35])
+
+    await items.delete("score-30")
+    expect(
+      (await items.query().where("score", ">", 20).fetch()).map((r) => r.score).sort(),
+    ).toEqual([25, 35])
+  })
+
   it("follows updates that move a record between buckets", async () => {
     const items = db.collection("items")
     const created = await items.create({ name: "mover", score: 1, group: "alpha" })

@@ -350,6 +350,24 @@ const schema = new Schema({
 })
 ```
 
+#### Indexes and range queries
+
+Declare an index for fields you filter by frequently:
+
+```typescript
+indexes: [{ field: "score" }]
+
+await items.query().where("score", ">=", 90).fetch()
+```
+
+The memory adapter keeps distinct index keys in a lazily sorted cache, seeks to
+the requested range with binary search, and invalidates the cache when a key
+bucket is added or removed. It uses a sequential scan for very broad ranges,
+where retrieving and copying most of the collection is cheaper than walking the
+index. Both paths return the same filtered records. On a warmed 20,000-row
+memory collection with a unique numeric index, a one-row range measured 0.025 ms
+indexed versus 0.974 ms scanned; a 1% range measured 0.115 ms versus 0.942 ms.
+
 #### Field Options
 
 | Option | Type | Description |

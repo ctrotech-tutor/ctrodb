@@ -18,6 +18,9 @@ const schema = {
       fields: { name: { type: "string" }, score: { type: "number" } },
       indexes: [{ field: "score" }],
     },
+    scanItems: {
+      fields: { name: { type: "string" }, score: { type: "number" } },
+    },
   },
 }
 
@@ -42,8 +45,11 @@ const db = new Database({ name: `perf-guard-${Math.random()}`, adapter: "memory"
 await db.connect()
 
 const items = db.collection("items")
+const scanItems = db.collection("scanItems")
 for (let i = 0; i < ROWS; i++) {
-  await items.create({ id: `id-${i}`, name: `name ${i}`, score: i })
+  const record = { id: `id-${i}`, name: `name ${i}`, score: i }
+  await items.create(record)
+  await scanItems.create(record)
 }
 
 const indexed = await time(
@@ -63,6 +69,25 @@ const scanned = await time(
   100,
 )
 const counted = await time(() => items.count(), 500)
+
+// A selective range must seek into sorted index keys, not visit every distinct
+// key (the previous Map walk made even a one-row range as slow as a full scan).
+const rangeIndexed = await time(
+  () =>
+    items
+      .query()
+      .where("score", ">=", ROWS - 1)
+      .fetch(),
+  100,
+)
+const rangeScanned = await time(
+  () =>
+    scanItems
+      .query()
+      .where("score", ">=", ROWS - 1)
+      .fetch(),
+  100,
+)
 
 await db.disconnect()
 
@@ -127,6 +152,7 @@ await ftsDb.disconnect()
 await scanDb.disconnect()
 
 const ratio = scanned / indexed
+const rangeRatio = rangeScanned / rangeIndexed
 const failures = []
 
 if (ratio < 3) {
@@ -137,6 +163,13 @@ if (ratio < 3) {
 }
 
 const matchRatio = matchScanned / matchIndexed
+if (rangeRatio < 3) {
+  failures.push(
+    `selective indexed range is only ${rangeRatio.toFixed(1)}x faster than a scan (expected >= 3x); ` +
+      "range lookup must seek to matching keys instead of walking the whole index",
+  )
+}
+
 if (matchRatio < 5) {
   failures.push(
     `indexed match() is only ${matchRatio.toFixed(1)}x faster than a scan (expected >= 5x); ` +
@@ -162,6 +195,9 @@ if (ftsMs > FTS_BUDGET_MS) {
 
 console.log(`rows: ${ROWS}`)
 console.log(`  indexed equality : ${indexed.toFixed(4)} ms`)
+console.log(
+  `  selective range  : ${rangeIndexed.toFixed(4)} ms indexed | ${rangeScanned.toFixed(4)} ms scan (${rangeRatio.toFixed(0)}x)`,
+)
 console.log(`  full scan        : ${scanned.toFixed(4)} ms  (${ratio.toFixed(1)}x slower)`)
 console.log(`  count()          : ${counted.toFixed(4)} ms`)
 console.log(`  fts index ${FTS_ROWS} docs: ${ftsMs.toFixed(0)} ms`)
