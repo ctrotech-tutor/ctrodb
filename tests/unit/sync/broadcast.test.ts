@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest"
 import { Database } from "../../../src/database"
 import { SyncEngine } from "../../../src/sync/sync-engine"
-import { ChangeTracker } from "../../../src/sync/change-tracker"
+import { ChangeTracker, TAB_ID, closeChangeChannel } from "../../../src/sync/change-tracker"
 import type {
   SyncChangeRecord,
   SyncPluginConfig,
@@ -95,10 +95,13 @@ describe("BroadcastChannel — ChangeTracker", () => {
 
   beforeEach(() => {
     MockBroadcastChannel.instances = []
+    // The tracker keeps one channel per context, so start each case clean.
+    closeChangeChannel()
     vi.stubGlobal("BroadcastChannel", MockBroadcastChannel)
   })
 
   afterEach(() => {
+    closeChangeChannel()
     vi.unstubAllGlobals()
   })
 
@@ -113,11 +116,26 @@ describe("BroadcastChannel — ChangeTracker", () => {
     expect(channel!.name).toBe("ctrodb:sync")
     expect(channel!.postMessage).toHaveBeenCalledWith({
       type: "change",
+      origin: TAB_ID,
       collection: "todos",
       recordId: "rec-1",
       changeType: "create",
     })
-    expect(channel!.close).toHaveBeenCalled()
+    // The shared channel must NOT be closed after every write (M-09); it is
+    // released when the sync engine is destroyed.
+    expect(channel!.close).not.toHaveBeenCalled()
+  })
+
+  it("reuses a single channel for many writes", async () => {
+    const adapter = new (await import("../../../src/adapter/memory")).MemoryAdapter()
+    const tracker = new ChangeTracker(adapter)
+
+    await tracker.append("create", "todos", "rec-1", { title: "a" })
+    await tracker.append("create", "todos", "rec-2", { title: "b" })
+    await tracker.append("update", "todos", "rec-1", { title: "c" })
+
+    expect(MockBroadcastChannel.instances).toHaveLength(1)
+    expect(MockBroadcastChannel.instances[0]!.postMessage).toHaveBeenCalledTimes(3)
   })
 
   it("broadcasts for update changes", async () => {
@@ -129,6 +147,7 @@ describe("BroadcastChannel — ChangeTracker", () => {
     const channel = MockBroadcastChannel.instances[0]
     expect(channel!.postMessage).toHaveBeenCalledWith({
       type: "change",
+      origin: TAB_ID,
       collection: "users",
       recordId: "u-1",
       changeType: "update",
@@ -144,6 +163,7 @@ describe("BroadcastChannel — ChangeTracker", () => {
     const channel = MockBroadcastChannel.instances[0]
     expect(channel!.postMessage).toHaveBeenCalledWith({
       type: "change",
+      origin: TAB_ID,
       collection: "items",
       recordId: "item-1",
       changeType: "delete",
@@ -220,6 +240,58 @@ describe("BroadcastChannel — SyncEngine subscription", () => {
 
     emitSpy.mockRestore()
     syncSpy.mockRestore()
+    await engine.destroy()
+  })
+
+  it("ignores its own broadcast echo (M-09)", async () => {
+    const { engine, db } = makeEngine({ autoSync: { debounceMs: 20 } })
+    await engine.init()
+
+    const channel = MockBroadcastChannel.instances[0]
+    const emitSpy = vi.spyOn(db, "_emit")
+    const syncSpy = vi.spyOn(engine, "sync")
+
+    // A message stamped with this context's id is our own write coming back.
+    channel!._receiveMessage({
+      type: "change",
+      origin: TAB_ID,
+      collection: "todos",
+      recordId: "rec-1",
+      changeType: "create",
+    })
+
+    await new Promise((r) => setTimeout(r, 60))
+
+    expect(emitSpy).not.toHaveBeenCalled()
+    expect(syncSpy).not.toHaveBeenCalled()
+
+    emitSpy.mockRestore()
+    syncSpy.mockRestore()
+    await engine.destroy()
+  })
+
+  it("still reacts to another tab's broadcast", async () => {
+    const { engine, db } = makeEngine({ autoSync: { debounceMs: 20 } })
+    await engine.init()
+
+    const channel = MockBroadcastChannel.instances[0]
+    const emitSpy = vi.spyOn(db, "_emit")
+
+    channel!._receiveMessage({
+      type: "change",
+      origin: "some-other-tab",
+      collection: "todos",
+      recordId: "rec-9",
+      changeType: "update",
+    })
+
+    expect(emitSpy).toHaveBeenCalledWith({
+      type: "update",
+      collection: "todos",
+      recordId: "rec-9",
+    })
+
+    emitSpy.mockRestore()
     await engine.destroy()
   })
 

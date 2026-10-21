@@ -37,6 +37,11 @@ export class Model<T extends Record<string, unknown> = Record<string, unknown>> 
     // biome-ignore lint/correctness/noConstructorReturn: returning Proxy for transparent data access
     return new Proxy(this, {
       get: (target, prop: string | symbol) => {
+        if (prop === "constructor") {
+          // Binding `constructor` made `model.constructor === Model` false
+          // (audit M-12); it is metadata, not a method to call.
+          return target.constructor
+        }
         if (prop in target) {
           const val = (target as unknown as Record<string | symbol, unknown>)[prop]
           if (typeof val === "function") {
@@ -46,13 +51,59 @@ export class Model<T extends Record<string, unknown> = Record<string, unknown>> 
         }
         return target.#data[prop as string]
       },
+
       set: (_target, prop: string | symbol, _value: unknown) => {
-        if (prop !== "id") {
-          console.warn(
-            `[ctrodb] Direct property assignment is not allowed. Use .update() instead. Field: "${String(prop)}"`,
+        // Silently accepting (and dropping) the write reported success while
+        // losing data. Fail loudly instead; `.update()` is the supported path.
+        if (prop === "id") return true
+        throw new TypeError(
+          `[ctrodb] Cannot assign "${String(prop)}" directly on a model. Use model.update({ ${String(prop)}: value }).`,
+        )
+      },
+
+      has: (target, prop: string | symbol) =>
+        prop in target || Object.hasOwn(target.#data, prop as string),
+
+      // Without these two traps the record's fields were invisible to
+      // `{...model}`, `Object.keys()`, `Object.entries()` and `JSON.stringify`
+      // (audit M-12): only the class members and relation getters showed up.
+      ownKeys: (target) => {
+        const keys = new Set<string | symbol>(Reflect.ownKeys(target))
+        for (const key of Object.keys(target.#data)) keys.add(key)
+        return [...keys]
+      },
+
+      getOwnPropertyDescriptor: (target, prop: string | symbol) => {
+        if (Object.hasOwn(target.#data, prop as string)) {
+          return {
+            value: target.#data[prop as string],
+            enumerable: true,
+            configurable: true,
+            writable: false,
+          }
+        }
+        return Reflect.getOwnPropertyDescriptor(target, prop)
+      },
+
+      // Keep the synthetic keys read-only. Without these, `Object.assign`,
+      // `defineProperty` or `delete` would create real own properties that
+      // shadow (and outlive) the record data.
+      defineProperty: (target, prop, descriptor) => {
+        if (Object.hasOwn(target.#data, prop as string)) {
+          throw new TypeError(
+            `[ctrodb] Cannot redefine "${String(prop)}" on a model. Use model.update({ ${String(prop)}: value }).`,
           )
         }
-        return true
+        return Reflect.defineProperty(target, prop, descriptor)
+      },
+
+      deleteProperty: (target, prop: string | symbol) => {
+        if (Object.hasOwn(target.#data, prop as string)) {
+          throw new TypeError(
+            `[ctrodb] Cannot delete "${String(prop)}" on a model. Use model.update() or model.delete().`,
+          )
+        }
+        return Reflect.deleteProperty(target, prop)
       },
     })
   }
@@ -71,6 +122,34 @@ export class Model<T extends Record<string, unknown> = Record<string, unknown>> 
 
   toJSON(): T {
     return { ...this.#data }
+  }
+
+  /**
+   * Load a relation's records.
+   *
+   * `model.posts` is a lazy `QueryBuilder` (the shape it has always had) while
+   * `collection.with("posts")` returns arrays. `load()` resolves either to
+   * data, which removes the "two shapes" ambiguity (audit M-13):
+   *
+   *   const posts = await user.load("posts")        // arrays
+   *   const author = await post.load("author")      // single model
+   */
+  async load(
+    relationName: string,
+  ): Promise<Model<Record<string, unknown>>[] | Model<Record<string, unknown>> | undefined> {
+    const relation = (this as unknown as Record<string, unknown>)[relationName] as
+      | { fetch(): Promise<Array<Model<Record<string, unknown>>>> }
+      | undefined
+
+    if (!relation || typeof relation.fetch !== "function") {
+      throw new Error(
+        `[ctrodb] "${String(relationName)}" is not a relation on collection "${this.#collection.name}"`,
+      )
+    }
+
+    const records = await relation.fetch()
+    const def = this.#schema?.getRelations(this.#collection.name)?.[relationName]
+    return def?.type === "has_many" ? records : records[0]
   }
 
   #attachRelationGetters(): void {
@@ -97,7 +176,7 @@ export class Model<T extends Record<string, unknown> = Record<string, unknown>> 
           return undefined
         },
         configurable: true,
-        enumerable: true,
+        enumerable: false,
       })
     }
   }

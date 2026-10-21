@@ -384,12 +384,9 @@ export class IndexedDBAdapter implements StorageAdapter {
       throw error
     }
 
-    try {
-      await completed
-    } catch (error) {
-      // The callback resolved but the transaction did not commit.
-      throw error
-    }
+    // The callback resolved, so only a successful commit may resolve the
+    // caller. A rejected `completed` (abort/error) propagates as-is.
+    await completed
 
     return result
   }

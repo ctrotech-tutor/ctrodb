@@ -62,15 +62,47 @@ describe("Model", () => {
     expect(col.delete).toHaveBeenCalledWith("1")
   })
 
-  it("proxy setter warns about direct assignment", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  it("throws on direct assignment instead of silently dropping the write", () => {
     const data = { id: "1" as any, name: "Alice" }
     const model = new Model(data, mockCollection(), mockDatabase(), null)
-    ;(model as any).name = "Bob"
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("Direct property assignment is not allowed"),
+
+    // Previously this logged a warning and returned `true`, so the assignment
+    // looked successful while the value never changed (audit M-12).
+    expect(() => {
+      ;(model as any).name = "Bob"
+    }).toThrow(/Cannot assign "name" directly/)
+
+    expect((model as any).name).toBe("Alice")
+  })
+
+  it("exposes the record's fields to ordinary JavaScript (M-12)", () => {
+    const data = { id: "1" as any, name: "Alice", age: 30 }
+    const model = new Model(data, mockCollection(), mockDatabase(), null)
+
+    expect(Object.keys(model).sort()).toEqual(["age", "id", "name"])
+    expect({ ...model }).toMatchObject({ id: "1", name: "Alice", age: 30 })
+    expect(JSON.parse(JSON.stringify(model))).toEqual({ id: "1", name: "Alice", age: 30 })
+    expect("name" in model).toBe(true)
+    expect(Object.hasOwn(model, "name")).toBe(true)
+    expect(JSON.parse(JSON.stringify({ model }))).toEqual({
+      model: { id: "1", name: "Alice", age: 30 },
+    })
+  })
+
+  it("keeps the synthetic field keys read-only (M-12)", () => {
+    const model = new Model({ id: "1" as any, name: "Alice" }, mockCollection(), mockDatabase(), null)
+
+    expect(model.constructor).toBe(Model)
+    expect(() => Object.defineProperty(model, "name", { value: "Mallory" })).toThrow(
+      /Cannot redefine "name"/,
     )
-    warn.mockRestore()
+    expect(() => Reflect.deleteProperty(model, "name")).toThrow(/Cannot delete "name"/)
+    expect((model as any).name).toBe("Alice")
+  })
+
+  it("does not mistake the wrapper for a thenable", async () => {
+    const model = new Model({ id: "1" as any, name: "Alice" }, mockCollection(), mockDatabase(), null)
+    await expect(Promise.resolve(model)).resolves.toBe(model)
   })
 
   describe("relation getters", () => {

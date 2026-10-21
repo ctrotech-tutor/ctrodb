@@ -375,6 +375,9 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** fewer changes are sent; intended by the option.
 
 #### M-09 — A local write triggers a spurious sync and duplicate phase events (same-tab broadcast)
+
+> **Status:** fixed in 1.7.0 — one module-level `BroadcastChannel` per context, every message carries `origin: TAB_ID`, receivers ignore their own echo, the channel is closed by `closeChangeChannel()` from `SyncEngine.destroy()`; the phantom `{phase:"push"}` event is gone.
+
 - **Where:** `src/sync/change-tracker.ts:61-73` creates a `BroadcastChannel` and posts on every append; `src/sync/sync-engine.ts:120-139` listens on its own channel in the same tab and calls `#emit({phase:"push"})` + `triggerSync()`.
 - **Evidence (confirmed, probe P23):** one local `create()` yields sync phases `push,push,pull,complete`.
 - **Impact:** `useSyncStatus`/event logs show phantom pushes; every write schedules an extra network sync; with `autoSync: false` the broadcast still emits a "push" event although nothing syncs.
@@ -396,6 +399,9 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** additive; server-push updates now appear (and emit events).
 
 #### M-12 — Model proxy hides the record from ordinary JavaScript
+
+> **Status:** fixed in 1.7.0 — `ownKeys`/`getOwnPropertyDescriptor`/`has` now forward to the record, so `{...model}`, `Object.keys`, `JSON.stringify` and `in` all see the stored fields; direct assignment raises a `TypeError` instead of logging a warning and reporting success.
+
 - **Where:** `src/model/index.ts:38-57`. The proxy only forwards unknown property reads; data fields are **not** own properties.
 - **Evidence (confirmed, probe P5):** `{...model}` → `{}`; `Object.keys(model)` → `[]`; `structuredClone(model)` throws `DataCloneError`; `model.constructor === Model` is `false` because the get trap binds functions including `constructor` (the class is returned as a bound function), while `model instanceof Model` is `true`.
 - **Impact:** spreading a model into React state or props silently loses all fields; structured-clone/worker messaging and some serializers fail. `toJSON()`/JSON.stringify work, masking the issue in simple tests.
@@ -403,6 +409,9 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** `Object.keys`/spread output changes (to include fields) — desirable, but observably different.
 
 #### M-13 — Relations return two different shapes, and are untyped
+
+> **Status:** fixed in 1.7.0 — `model.load(name)` resolves relation *data* to a documented shape (array for `has_many`, single record for `has_one`/`belongs_to`) and rejects unknown names; `model.<relation>` remains the lazy `QueryBuilder`; eager `.with()` output is unchanged. Relation typing from the schema is tracked with M-14.
+
 - **Where:** `src/model/index.ts:76-103` — `model.author` returns a **QueryBuilder** (`await post.author.first()`); `src/collection.ts:239-332` — after `.with(...)`, the same property is overwritten via `Object.defineProperty` with **resolved data**.
 - **Evidence (confirmed, probes P5/P8):** `typeof post.author === "object"` and its constructor is `QueryBuilder`; after `with("author")` it is the user object. `p.author` is a TypeScript error (`Property 'author' does not exist on Model<…>`) — the README's lazy-relation example does not compile.
 - **Impact:** the same accessor has two contracts; users must know whether a query used `.with()`; no type safety for either form.
@@ -429,6 +438,9 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** additive if a new method is added; changing `.search()` semantics is breaking.
 
 #### M-16 — `useQuery`: no request sequencing, spread dependencies, refetch per event
+
+> **Status:** fixed in 1.7.0 — monotonic request token discards out-of-order responses, caller `deps` are compared in a separate effect (length may change), change events are coalesced over a 16 ms window, and background refreshes no longer flip `loading`.
+
 - **Where:** `src/react.ts:61-109`; effect deps `[collectionName, db, ...deps]` (106); `cancelled` is only set on unmount (102-105).
 - **Evidence (strongly indicated by code):** two overlapping `runQuery()` calls (a change event during a slow fetch) can resolve out of order and let the older result win; the dependency array length changes if `deps` length changes (a React rules-of-hooks hazard); every change event triggers a full re-query with no debounce, and `deleteMany` emits one event per id (`src/collection.ts:158-170`), so a bulk delete causes N refetches.
 - **Impact:** stale UI under load and unnecessary adapter reads; harder-to-diagnose flicker.
