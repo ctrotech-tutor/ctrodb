@@ -180,27 +180,40 @@ export class Schema {
   }
 
   #validateType(collection: string, field: string, value: unknown, def: FieldDefinition): void {
-    const allowedTypes: Record<string, string[]> = {
-      string: ["string"],
-      number: ["number"],
-      boolean: ["boolean"],
-      object: ["object"],
-      array: ["object"],
-    }
-
-    const validTypes = allowedTypes[def.type]
-    if (!validTypes) return
-
-    const actualType =
-      def.type === "array" ? (Array.isArray(value) ? "object" : typeof value) : typeof value
-
-    if (!validTypes.includes(actualType)) {
+    // Explicit shape checks: `typeof value === "object"` is true for arrays,
+    // null and dates, so the previous mapping accepted the wrong shapes for
+    // both `object` and `array` (audit M-04).
+    const describe = (input: unknown): string =>
+      input === null ? "null" : Array.isArray(input) ? "array" : typeof input
+    const mismatch = (): never => {
       throw new ValidationError(
         collection,
         field,
-        `must be of type "${def.type}" (got "${typeof value}")`,
+        `must be of type "${def.type}" (got "${describe(value)}")`,
         value,
       )
+    }
+
+    switch (def.type) {
+      case "array":
+        if (!Array.isArray(value)) mismatch()
+        break
+
+      case "object":
+        if (typeof value !== "object" || value === null || Array.isArray(value)) mismatch()
+        break
+
+      case "number":
+        if (typeof value !== "number" || Number.isNaN(value)) mismatch()
+        break
+
+      case "string":
+        if (typeof value !== "string") mismatch()
+        break
+
+      case "boolean":
+        if (typeof value !== "boolean") mismatch()
+        break
     }
 
     if (def.type === "array" && Array.isArray(value) && def.items) {

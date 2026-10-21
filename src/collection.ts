@@ -1,3 +1,4 @@
+import { RecordNotFoundError } from "./errors"
 import { Model } from "./model/index"
 import { QueryBuilder } from "./query/builder"
 import type { QueryExecutor } from "./query/executor"
@@ -147,7 +148,7 @@ export class Collection<T extends Record<string, unknown>> {
     context: WriteContext = LOCAL_WRITE,
   ): Promise<Model<T> & T> {
     const existing = (await this.#adapter.findById(this.name, id)) as T | undefined
-    if (!existing) throw new Error(`Record "${id}" not found in collection "${this.name}"`)
+    if (!existing) throw new RecordNotFoundError(this.name, id)
 
     const processed = (await runHook(
       this.#plugins,

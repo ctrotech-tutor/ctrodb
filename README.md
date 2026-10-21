@@ -311,6 +311,12 @@ const plugin: CtroDBPlugin = {
 
 Inverted-index FTS with automatic indexing on create/update/delete.
 
+> `query().search(field, text)` performs a case-insensitive **substring** match
+> on the field value; it does not consult the FTS index. The FTS plugin
+> maintains an inverted index for token queries. This distinction is
+> deliberate: changing `search()` to tokenised matching would silently change
+> results for existing callers.
+
 **Basic search (substring matching) — no plugin required:**
 ```typescript
 // Case-insensitive substring search
@@ -407,6 +413,18 @@ Rules that apply to both adapters:
   anything else ends the transaction early. Do the I/O first, then open the
   transaction.
 - A resolved promise means *committed*, not merely "the callback returned".
+
+## Schema strictness
+
+With a schema configured, the schema is the source of truth:
+
+- `db.collection(name)` throws `CollectionNotFoundError` for a collection that
+  is not declared (internal stores use a leading underscore and are exempt).
+- Field types are checked structurally: `array` requires an array, `object`
+  rejects arrays and `null`, and `number` rejects `NaN`.
+- Updating a missing record throws `RecordNotFoundError`; creating a duplicate
+  id throws a duplicate-record error. Both are exported classes, so prefer
+  `instanceof` over matching message text.
 
 ## Ordering
 

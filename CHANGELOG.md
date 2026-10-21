@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.6.0] - 2026-10-21
+
+### Fixed
+- **Schema type checks are real (M-04).** `array` fields reject non-arrays,
+  `object` fields reject arrays and `null`, and `NaN` is no longer accepted for
+  `number`. Previously every one of these passed because `typeof` reports
+  `"object"` for arrays and `null`.
+- **Undeclared collections throw (M-05).** `db.collection("typo")` on a database
+  with a schema now raises `CollectionNotFoundError` listing the declared
+  collections. Before, it created an unvalidated, unindexed collection that
+  silently bypassed the schema.
+- **Typed errors from the write path (M-06).** Updating a missing record now
+  throws the exported `RecordNotFoundError` instead of a bare `Error`, so
+  callers can branch on `instanceof` rather than message text.
+- **The `collections` sync filter applies to push (M-08).** A plugin configured
+  for a subset of collections used to push everything and only filter pulls.
+- **Real-time server pushes work (M-11).** The engine subscribes to
+  `transport.onServerPush`, triggering a debounced sync, and releases the
+  subscription with the engine. Previously the transport exposed the callback
+  but nothing ever registered it, so pushed data waited for the next poll.
+
+### Documented
+- `query().search(field, text)` is a case-insensitive **substring** filter, not
+  an FTS query. Documented explicitly so the behaviour is a contract, not an
+  accident (M-15); a future release can route it through the FTS index.
+
 All notable changes to ctrodb will be documented in this file.
 
 ## [1.5.0] - 2026-10-21
