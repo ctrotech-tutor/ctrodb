@@ -9,6 +9,7 @@ interface QueryableCollection<T extends object, R extends RelationShapes> {
   _getSchema(): import("../schema").Schema | null
   _getAdapter(): import("../types").StorageAdapter
   _toModels(rawRecords: T[]): (Model<T, R> & T)[]
+  count(): Promise<number>
 }
 
 /** Keys of `T` whose value is a string. */
@@ -99,6 +100,17 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
   }
 
   async fetch(): Promise<(Model<T, R> & T)[]> {
+    const rawRecords = await this.#run()
+    return this.#collection._toModels(rawRecords)
+  }
+
+  /**
+   * Run the plan and return the raw rows.
+   *
+   * Split out of `fetch()` so `count()` does not pay to wrap every row in a
+   * `Model` (a Proxy) only to discard it.
+   */
+  async #run(): Promise<T[]> {
     const collectionSchema = this.#collection._getSchema()
     const schema: CollectionSchema | null = collectionSchema
       ? {
@@ -116,13 +128,7 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
     plan.limit = this.#limitValue
     plan.offset = this.#offsetValue
 
-    const rawRecords = await this.#executor.execute<T>(
-      this.#collection._getAdapter(),
-      this.#collection.name,
-      plan,
-    )
-
-    return this.#collection._toModels(rawRecords)
+    return this.#executor.execute<T>(this.#collection._getAdapter(), this.#collection.name, plan)
   }
 
   async first(): Promise<(Model<T, R> & T) | undefined> {
@@ -131,8 +137,17 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
   }
 
   async count(): Promise<number> {
-    const results = await this.fetch()
-    return results.length
+    // An unfiltered, unwindowed query is just the collection size.
+    const empty = this.#conditionGroups.every((group) => group.length === 0)
+    if (
+      empty &&
+      !this.#sortSpec &&
+      this.#limitValue === undefined &&
+      this.#offsetValue === undefined
+    ) {
+      return this.#collection.count()
+    }
+    return (await this.#run()).length
   }
 
   async toArray(): Promise<T[]> {

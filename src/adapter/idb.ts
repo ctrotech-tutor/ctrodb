@@ -170,6 +170,17 @@ function idbFindById(
   })
 }
 
+/** `store.count()` instead of materialising every row to read `.length`. */
+function idbCount(db: IDBDatabase, collection: string): Promise<number> {
+  if (!db.objectStoreNames.contains(collection)) return Promise.resolve(0)
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(collection, "readonly")
+    const request = tx.objectStore(collection).count()
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
 function idbFindAll(db: IDBDatabase, collection: string): Promise<Record<string, unknown>[]> {
   if (!db.objectStoreNames.contains(collection)) return Promise.resolve([])
   return new Promise((resolve, reject) => {
@@ -289,6 +300,10 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   async findAll(collection: string): Promise<Record<string, unknown>[]> {
     return idbFindAll(this.#getDb(), collection)
+  }
+
+  async count(collection: string): Promise<number> {
+    return idbCount(this.#getDb(), collection)
   }
 
   async update(

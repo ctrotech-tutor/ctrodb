@@ -239,6 +239,9 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   }
 
   async count(): Promise<number> {
+    // Counting must not copy rows: `findAll()` builds a fresh object per record,
+    // so `count()` on 10k rows used to allocate 10k objects to read `.length`.
+    if (this.#adapter.count) return this.#adapter.count(this.name)
     const all = await this.#adapter.findAll(this.name)
     return all.length
   }
@@ -395,6 +398,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
       _getSchema: () => this.#schema,
       _getAdapter: () => this.#adapter,
       _toModels: (raw: T[]) => this._toModels(raw),
+      count: () => this.count(),
     }
   }
 }

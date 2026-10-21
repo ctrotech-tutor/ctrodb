@@ -59,6 +59,14 @@ describe("reads", () => {
     await items.count()
   })
 
+  bench("query count (unfiltered)", async () => {
+    await items.query().count()
+  })
+
+  bench("query count (filtered)", async () => {
+    await items.query().where("score", ">=", 90).count()
+  })
+
   bench("index equality (score == 42)", async () => {
     await items.query().where("score", "==", 42).fetch()
   })
