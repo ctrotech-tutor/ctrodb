@@ -10,6 +10,7 @@ import type { SyncEvent, SyncStatus } from "./sync/types"
 import { TransactionPipeline } from "./transaction-context"
 import type {
   ChangeEvent,
+  ConnectionChangeEvent,
   CtroDBPlugin,
   ID,
   PluginStoreName,
@@ -44,6 +45,8 @@ export class Database {
   #collections = new Map<string, Collection<Record<string, unknown>>>()
   #plugins: CtroDBPlugin[] = []
   #changeSignal = new Signal<ChangeEvent | null>(null)
+  #connectionChangeSignal = new Signal<ConnectionChangeEvent | null>(null)
+  #connectionCleanup: Promise<void> = Promise.resolve()
   #connected = false
 
   constructor(config: DatabaseConfig = {}) {
@@ -62,6 +65,8 @@ export class Database {
     if (config.plugins) {
       this.#plugins = config.plugins
     }
+
+    this.#adapter.setConnectionChangeHandler?.((event) => this.#handleConnectionChange(event))
   }
 
   get isConnected(): boolean {
@@ -73,6 +78,7 @@ export class Database {
   }
 
   async connect(): Promise<void> {
+    await this.#connectionCleanup
     if (this.#connected) return
 
     const pluginStoreNames = this.#plugins.flatMap(
@@ -112,10 +118,32 @@ export class Database {
   }
 
   async disconnect(): Promise<void> {
-    if (!this.#connected) return
+    if (!this.#connected) {
+      await this.#connectionCleanup
+      return
+    }
 
-    // Tear down plugins first (reverse order) so timers, channels and
-    // listeners stop before the storage goes away (audit M-10).
+    await this.#destroyPlugins()
+    await this.#adapter.disconnect()
+    this.#collections.clear()
+    this.#connected = false
+  }
+
+  /**
+   * Subscribe to external IndexedDB lifecycle changes.
+   *
+   * On `versionchange`, ctrodb closes its old connection and tears down
+   * connection-scoped plugins. The instance becomes disconnected; reload the
+   * app or call `connect()` with a schema at least as new as the upgraded DB.
+   */
+  onConnectionChange(callback: (event: ConnectionChangeEvent) => void): () => void {
+    return this.#connectionChangeSignal.subscribe((event) => {
+      if (event) callback(event)
+    })
+  }
+
+  async #destroyPlugins(): Promise<void> {
+    // Reverse registration order so listeners/timers stop before their deps.
     for (const plugin of [...this.#plugins].reverse()) {
       if (plugin.onDatabaseDestroy) {
         try {
@@ -125,10 +153,13 @@ export class Database {
         }
       }
     }
+  }
 
-    await this.#adapter.disconnect()
-    this.#collections.clear()
+  #handleConnectionChange(event: ConnectionChangeEvent): void {
     this.#connected = false
+    this.#collections.clear()
+    this.#connectionChangeSignal.value = event
+    this.#connectionCleanup = this.#destroyPlugins()
   }
 
   collection<T extends object = Record<string, unknown>>(name: string): Collection<T> {

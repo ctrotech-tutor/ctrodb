@@ -118,6 +118,15 @@ export interface ChangeEvent {
   oldRecord?: unknown
 }
 
+/** The current IndexedDB connection must close because another context upgraded it. */
+export interface ConnectionChangeEvent {
+  type: "versionchange"
+  databaseName: string
+  oldVersion: number
+  newVersion: number | null
+  message: string
+}
+
 export interface PluginStoreConfig {
   name: string
   indexes?: IndexDefinition[]
@@ -204,6 +213,8 @@ export interface StorageAdapter {
   connect(name: string, schema: SchemaConfig | null): Promise<void>
   disconnect(): Promise<void>
   isConnected(): boolean
+  /** Optional notification when the backing connection is externally invalidated. */
+  setConnectionChangeHandler?(handler: (event: ConnectionChangeEvent) => void): void
   getSchemaVersion(): Promise<number>
   setSchemaVersion(version: number): Promise<void>
   create(collection: string, data: unknown): Promise<unknown>

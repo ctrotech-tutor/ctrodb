@@ -195,6 +195,28 @@ await db.transaction(fn)                    // Atomic writes; hooks/events after
 db.on(callback)                             // Subscribe to all changes
 ```
 
+#### IndexedDB upgrades across tabs
+
+When another tab opens a newer schema version, this tab's IndexedDB connection
+receives `versionchange`. ctrodb closes the stale connection automatically,
+marks the `Database` disconnected, and runs plugin teardown. Subscribe if the app
+should prompt for a reload:
+
+```typescript
+db.onConnectionChange((event) => {
+  if (event.type === "versionchange") {
+    console.info(event.message)
+    // Show "A new version is available — reload to continue".
+  }
+})
+```
+
+A blocked upgrade rejects with an actionable `ConnectionError` instead of
+hanging. The outdated connection closes when it receives the upgrade event; if
+the open request succeeds after the caller has already received that rejection,
+ctrodb closes the late connection rather than leaking it. Reconnect with the
+current schema version (an older schema cannot downgrade an IndexedDB database).
+
 #### DatabaseConfig
 
 | Option | Type | Default | Description |
