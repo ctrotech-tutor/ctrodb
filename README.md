@@ -368,6 +368,12 @@ index. Both paths return the same filtered records. On a warmed 20,000-row
 memory collection with a unique numeric index, a one-row range measured 0.025 ms
 indexed versus 0.974 ms scanned; a 1% range measured 0.115 ms versus 0.942 ms.
 
+Indexes trade write work and storage for faster reads, so declare only fields
+your queries use. The memory adapter updates only the indexes for fields changed
+by a patch. For supported scalar unique keys, uniqueness checks reuse the index
+bucket rather than scanning every existing record; this avoids quadratic cost
+when inserting many records into a unique-indexed collection.
+
 #### Field Options
 
 | Option | Type | Description |
