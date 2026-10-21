@@ -1,5 +1,13 @@
 # CTRODB — Phase 1 Engineering Audit
 
+> **Status as of 1.7.2:** every Critical, High and Medium finding in this report
+> is closed **except M-14** (schema-derived types, operators and relations are
+> still untyped — tracked as the next body of work). All Low/Informational items
+> are closed. Each entry carries a `Status:` line with the release that fixed it.
+>
+> Verified at 1.7.2: 587 tests / 34 files, `npm run verify` clean, package
+> declarations checked for node10 / node16 (CJS + ESM) / bundler.
+
 **Repository:** `ctrotech-tutor/ctrodb` · commit `f3193cb` (`main`, 2026-07-02)
 **Package version audited:** 1.4.0 · **Audit date:** 2026-10-21
 **Auditor stance:** evidence only. No project files were modified, renamed, deleted, or generated. All runtime probes were written to `/tmp` and executed against a local `dist/` build.
