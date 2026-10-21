@@ -5,6 +5,7 @@ import { QueryExecutor } from "./query/executor"
 import { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
 import { Schema } from "./schema"
+import type { CollectionName, DocumentOf, RelationsOf } from "./schema-types"
 import type { SyncEvent, SyncStatus } from "./sync/types"
 import type {
   ChangeEvent,
@@ -15,10 +16,16 @@ import type {
   TransactionContext,
 } from "./types"
 
-export interface DatabaseConfig {
+export interface DatabaseConfig<S extends SchemaConfig | undefined = SchemaConfig | undefined> {
   name?: string
   adapter?: "indexeddb" | "memory" | StorageAdapter
-  schema?: SchemaConfig
+  /**
+   * Schema for this database. Pass the result of `defineSchema()` to get
+   * schema-derived document types; a plain object also works at runtime but its
+   * literal field types are already widened, so derived types fall back to
+   * `unknown`.
+   */
+  schema?: S
   plugins?: CtroDBPlugin[]
   logLevel?: "debug" | "info" | "warn" | "error" | "silent"
 }
@@ -152,7 +159,7 @@ export class Database {
         }
       }
     }
-    return col
+    return col as Collection<T>
   }
 
   async transaction<T>(fn: (ctx: TransactionContext) => Promise<T>): Promise<T> {
@@ -240,4 +247,47 @@ export class Database {
       throw new ConnectionError(this.name)
     }
   }
+}
+
+/**
+ * A `Database` whose `collection()` is typed from its schema.
+ *
+ * This is a subclass rather than a generic `Database<S>` on purpose: a generic
+ * database would be invariant in `S`, so a typed instance could not be passed
+ * to any function that accepts a plain `Database` — which is most of the API
+ * (`inspectSyncQueue`, `DatabaseProvider`, sync transports, user helpers).
+ * Extending keeps `TypedDatabase<S>` a `Database` everywhere.
+ */
+export class TypedDatabase<S extends SchemaConfig> extends Database {
+  declare readonly __schema?: S
+
+  override collection<K extends CollectionName<S>>(
+    name: K,
+  ): Collection<DocumentOf<S, K>, RelationsOf<S, K>>
+  // Kept so that `TypedDatabase<S>` remains assignable to `Database` (a class
+  // generic would be invariant and could not be passed to helpers or context
+  // providers). An undeclared name therefore still compiles here, and fails at
+  // runtime with `CollectionNotFoundError` — the same contract as before.
+  override collection<T extends object = Record<string, unknown>>(name: string): Collection<T>
+  override collection<T extends object = Record<string, unknown>>(name: string): Collection<T> {
+    return super.collection<T>(name)
+  }
+}
+
+/**
+ * Create a database whose collections are typed from its schema.
+ *
+ * ```ts
+ * const schema = defineSchema({ version: 1, collections: { … } })
+ * const db = createDatabase({ name: "app", schema, adapter: "indexeddb" })
+ * const todos = db.collection("todos")   // document type inferred from the schema
+ * ```
+ *
+ * The `const` type parameter preserves the schema's literal field types even
+ * when the config is written inline.
+ */
+export function createDatabase<const S extends SchemaConfig>(
+  config: DatabaseConfig & { schema: S },
+): TypedDatabase<S> {
+  return new TypedDatabase<S>(config)
 }

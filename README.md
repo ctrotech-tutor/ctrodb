@@ -95,28 +95,47 @@ npm install ctrodb
 ### 1. Define a schema
 
 ```typescript
-import { Database, syncPlugin, HttpTransport } from "ctrodb"
+import { createDatabase, defineSchema, syncPlugin, HttpTransport } from "ctrodb"
 
-const db = new Database({
-  name: "my-app",
-  plugins: [syncPlugin({ transport: new HttpTransport({ url: "https://api.example.com/sync" }) })],
-  adapter: "indexeddb", // "memory" for Node/testing
-  schema: {
-    version: 1,
-    collections: {
-      users: {
-        fields: {
-          name: { type: "string", required: true },
-          email: { type: "string", validate: "email" },
-          age: { type: "number", min: 0, max: 150 },
-          role: { type: "string", default: "user" },
-        },
-        indexes: [{ field: "email", unique: true }],
+const schema = defineSchema({
+  version: 1,
+  collections: {
+    users: {
+      fields: {
+        name: { type: "string", required: true },
+        email: { type: "string", validate: "email" },
+        age: { type: "number", min: 0, max: 150 },
+        role: { type: "string", default: "user" },
       },
+      indexes: [{ field: "email", unique: true }],
     },
   },
 })
+
+const db = createDatabase({
+  name: "my-app",
+  schema,
+  plugins: [syncPlugin({ transport: new HttpTransport({ url: "https://api.example.com/sync" }) })],
+  adapter: "indexeddb", // "memory" for Node/testing
+})
 ```
+
+`defineSchema()` validates the declaration immediately and keeps its literal
+types, so every collection is typed from the schema — no hand-written document
+interfaces, no duplicated field lists:
+
+```typescript
+const users = db.collection("users")   // Collection<{ id: ID; name: string; email?: string; ... }>
+await users.create({ label: "x" })     // type error: "label" is not a user field
+await users.create({ email: "a@b.c" }) // type error: "name" is required
+users.query().where("age", ">", 18)    // value typed from the field
+users.query().where("age", ">", "18")  // type error
+users.query().where("nope", 1)         // type error
+```
+
+`new Database({ ... })` still works exactly as before: without
+`defineSchema()`/`createDatabase()` collections are `Collection<T>` untyped and
+you pass the document type yourself (`db.collection<User>("users")`).
 
 ### 2. Connect and create records
 
@@ -126,6 +145,7 @@ await db.connect()
 const users = db.collection("users")
 const alice = await users.create({ name: "Alice", email: "alice@test.com", age: 30 })
 // alice.name === "Alice", alice.role === "user" (default applied)
+// `alice.id` is a string; `alice.age` is `number | undefined`
 ```
 
 ### 3. Query with the fluent builder
@@ -165,7 +185,8 @@ const unsub = users.onChange((event) => {
 ### Database
 
 ```typescript
-const db = new Database(config)
+const db = createDatabase({ schema, ...rest })  // Typed from the schema (recommended)
+const db = new Database(config)                  // Untyped collections
 
 await db.connect()                          // Open connection
 await db.disconnect()                       // Close connection
@@ -180,8 +201,32 @@ db.on(callback)                             // Subscribe to all changes
 |---|---|---|---|
 | `name` | `string` | `"ctrodb"` | Database name (used for IndexedDB store name) |
 | `adapter` | `"indexeddb" \| "memory" \| StorageAdapter` | auto-detect | Storage backend |
-| `schema` | `SchemaConfig` | — | Schema definition |
+| `schema` | `SchemaConfig` | — | Schema definition. Use `defineSchema()` to derive document types |
 | `plugins` | `CtroDBPlugin[]` | — | Plugins to load |
+
+### defineSchema / createDatabase
+
+```typescript
+import { defineSchema, createDatabase } from "ctrodb"
+
+const schema = defineSchema({ version: 1, collections: { … } })  // validated now, literal types kept
+const db = createDatabase({ schema, name: "app", adapter: "indexeddb" })
+```
+
+| Export | Purpose |
+|---|---|
+| `defineSchema(config)` | Returns the same object, but validates it immediately and preserves literal field types so document types can be derived |
+| `createDatabase(config)` | `Database` whose `collection()` is typed from the schema; assignable everywhere a `Database` is |
+| `DocumentOf<S, "collection">` | Document type of one collection (useful for props and function signatures) |
+| `InferRecord<C>` | Document type of a single `collections` entry |
+
+Field typing rules:
+
+- `required: true` → the property is required on the document and in `create()`.
+- anything else → optional (`T | undefined`), including fields with a `default`
+  (the default is applied on write, but rows written earlier — or arriving via
+  sync — may not have the field).
+- `array` fields use `items` when declared.
 
 ### Collection\<T\>
 
@@ -463,6 +508,10 @@ const owner = await post.load("author")             // belongs_to → one Model
 const withPosts = await db.collection("authors").with("posts").fetch()
 withPosts[0].posts                                  // resolved Model[]
 ```
+
+With a `defineSchema()` schema, the resolved type is derived from the relation:
+`await post.load("author")` is `User | undefined`, `await user.load("posts")` is
+`Post[]`, and a name that is not a relation of that collection is a type error.
 
 `load(name)` resolves to an array for `has_many` and to a single record for
 `has_one`/`belongs_to`. It rejects when the name is not a declared relation,

@@ -427,6 +427,8 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** the property shape is already inconsistent; formalising it is breaking for one of the two usages — justify with a minor version and a migration note.
 
 #### M-14 — Types are not derived from the schema; query operators/fields are unchecked; relations untyped
+
+> **Status:** fixed in 1.8.0 — `defineSchema()` + `createDatabase()` derive the document type, the typed `where`/`sort`/`search` signatures and the relation results (`load()`), with the derivation checked against the built declarations in `scripts/type-smoke/schema-types.ts`. Collection *names* remain a runtime check (`CollectionNotFoundError`): making them a compile-time check requires an invariant database type, which would break every API that accepts a `Database`.
 - **Where:** `src/types.ts` (config types only), `src/database.ts:104-106` (`collection<T>` defaults to `Record<string, unknown>`), `src/query/builder.ts:28` (`opOrValue: unknown`).
 - **Evidence (confirmed, type probe T1 and consumer T3):**
   - `db.collection("users").create({ name: "a", bogusField: 123 })` compiles;

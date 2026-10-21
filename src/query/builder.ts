@@ -1,31 +1,50 @@
 import type { Model } from "../model/index"
-import type { CollectionSchema, QueryCondition, SortSpec } from "../types"
+import type { RelationShapes } from "../schema-types"
+import type { CollectionSchema, QueryCondition, QueryOperator, SortSpec } from "../types"
 import type { QueryExecutor } from "./executor"
 import type { QueryPlanner } from "./planner"
 
-interface QueryableCollection<T extends object> {
+interface QueryableCollection<T extends object, R extends RelationShapes> {
   readonly name: string
   _getSchema(): import("../schema").Schema | null
   _getAdapter(): import("../types").StorageAdapter
-  _toModels(rawRecords: T[]): (Model<T> & T)[]
+  _toModels(rawRecords: T[]): (Model<T, R> & T)[]
 }
 
-export class QueryBuilder<T extends object> {
+/** Keys of `T` whose value is a string. */
+type StringKeys<T> = { [K in keyof T]-?: T[K] extends string ? K : never }[keyof T] & string
+
+export class QueryBuilder<T extends object, R extends RelationShapes = Record<never, never>> {
   #conditionGroups: QueryCondition[][] = [[]]
   #sortSpec: SortSpec | undefined
   #limitValue: number | undefined
   #offsetValue: number | undefined
-  #collection: QueryableCollection<T>
+  #collection: QueryableCollection<T, R>
   #planner: QueryPlanner
   #executor: QueryExecutor
 
-  constructor(collection: QueryableCollection<T>, planner: QueryPlanner, executor: QueryExecutor) {
+  constructor(
+    collection: QueryableCollection<T, R>,
+    planner: QueryPlanner,
+    executor: QueryExecutor,
+  ) {
     this.#collection = collection
     this.#planner = planner
     this.#executor = executor
   }
 
-  where(field: keyof T & string, opOrValue: unknown, value?: unknown): this {
+  /**
+   * Filter by field.
+   *
+   * The field name and the value are typed from the collection's document
+   * type, so `where("age", ">", "18")` and `where("nope", 1)` are compile
+   * errors instead of empty result sets (audit M-14).
+   */
+  where(field: "id", value: import("../types").ID | undefined): this
+  where(field: "id", op: QueryOperator, value: import("../types").ID | undefined): this
+  where<K extends keyof T & string>(field: K, value: T[K]): this
+  where<K extends keyof T & string>(field: K, op: QueryOperator, value: T[K]): this
+  where(field: string, opOrValue: unknown, value?: unknown): this {
     const supportedOps = ["==", "!=", ">", "<", ">=", "<="]
     let op: string
     let val: unknown
@@ -50,7 +69,7 @@ export class QueryBuilder<T extends object> {
   }
 
   orWhere(callback: (q: QueryBuilder<T>) => void): this {
-    const childBuilder = new QueryBuilder(this.#collection, this.#planner, this.#executor)
+    const childBuilder = new QueryBuilder<T, R>(this.#collection, this.#planner, this.#executor)
     callback(childBuilder)
 
     const newGroup = childBuilder.#conditionGroups[0]
@@ -79,7 +98,7 @@ export class QueryBuilder<T extends object> {
     return this
   }
 
-  async fetch(): Promise<(Model<T> & T)[]> {
+  async fetch(): Promise<(Model<T, R> & T)[]> {
     const collectionSchema = this.#collection._getSchema()
     const schema: CollectionSchema | null = collectionSchema
       ? {
@@ -106,7 +125,7 @@ export class QueryBuilder<T extends object> {
     return this.#collection._toModels(rawRecords)
   }
 
-  async first(): Promise<(Model<T> & T) | undefined> {
+  async first(): Promise<(Model<T, R> & T) | undefined> {
     const results = await this.limit(1).fetch()
     return results[0]
   }
@@ -121,7 +140,14 @@ export class QueryBuilder<T extends object> {
     return results.map((model) => model.toJSON())
   }
 
-  search(field: keyof T & string, query: string): this {
+  /**
+   * Case-insensitive substring filter on one **string** field.
+   *
+   * The field is restricted to string-valued keys because searching a number or
+   * boolean field can never match (audit M-15 documents the semantics).
+   */
+  search<K extends StringKeys<T>>(field: K, query: string): this
+  search(field: string, query: string): this {
     const lastGroup = this.#conditionGroups[this.#conditionGroups.length - 1] ?? []
     lastGroup.push({ type: "search", field, value: query })
     return this

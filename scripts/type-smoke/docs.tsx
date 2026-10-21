@@ -10,7 +10,9 @@
  *
  * Keep the snippets here in sync with the README when either changes.
  */
-import { Database } from "ctrodb"
+
+import type { DocumentOf } from "ctrodb"
+import { createDatabase, type Database, defineSchema } from "ctrodb"
 import {
   DatabaseProvider,
   SyncDevPanel,
@@ -23,39 +25,38 @@ import {
   useSyncStatus,
 } from "ctrodb/react"
 
-const db: Database = new Database({
-  name: "docs-smoke",
-  adapter: "memory",
-  schema: {
-    version: 1,
-    collections: {
-      authors: {
-        fields: { name: { type: "string" } },
-        relations: {
-          posts: { type: "has_many", collection: "posts", foreignKey: "authorId" },
-        },
+const schema = defineSchema({
+  version: 1,
+  collections: {
+    authors: {
+      fields: { name: { type: "string" } },
+      relations: {
+        posts: { type: "has_many", collection: "posts", foreignKey: "authorId" },
       },
-      posts: {
-        fields: { title: { type: "string" }, authorId: { type: "string" } },
-        relations: {
-          author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },
-        },
+    },
+    posts: {
+      fields: { title: { type: "string" }, authorId: { type: "string" } },
+      relations: {
+        author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },
       },
-      todos: {
-        fields: { text: { type: "string" }, status: { type: "string" } },
+    },
+    todos: {
+      fields: {
+        text: { type: "string", required: true },
+        status: { type: "string", default: "open" },
       },
     },
   },
 })
 
+// README quick start: typed database, still a `Database` everywhere.
+const db = createDatabase({ name: "docs-smoke", adapter: "memory", schema })
+
 // A plain interface, deliberately: the generic constraint used to be
 // `Record<string, unknown>`, so interfaces without an index signature were
 // rejected by `useQuery<Todo>`, `db.collection<Todo>()` and friends.
-interface Todo {
-  id: string
-  text: string
-  status: string
-}
+// Derived from the schema — no hand-written document interface (M-14).
+type Todo = DocumentOf<typeof schema, "todos">
 
 // README → Quick start / React
 export function App() {

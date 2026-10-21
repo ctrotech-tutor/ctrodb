@@ -1,11 +1,15 @@
 import type { Schema } from "../schema"
+import type { DocOf, HasManyKeys, RelationShapes, ToOneKeys } from "../schema-types"
 import type { ID } from "../types"
 
-export class Model<T extends object = Record<string, unknown>> {
+export class Model<
+  T extends object = Record<string, unknown>,
+  R extends RelationShapes = Record<never, never>,
+> {
   #data: T
   #collection: {
     readonly name: string
-    update(id: ID, changes: Partial<T>): Promise<Model<T>>
+    update(id: ID, changes: Partial<T>): Promise<Model<T, R> & T>
     delete(id: ID): Promise<void>
     _getSchema(): Schema | null
   }
@@ -18,7 +22,7 @@ export class Model<T extends object = Record<string, unknown>> {
     data: T,
     collection: {
       readonly name: string
-      update(id: ID, changes: Partial<T>): Promise<Model<T>>
+      update(id: ID, changes: Partial<T>): Promise<Model<T, R> & T>
       delete(id: ID): Promise<void>
       _getSchema(): Schema | null
     },
@@ -112,7 +116,7 @@ export class Model<T extends object = Record<string, unknown>> {
     return (this.#data as Record<string, unknown>).id as ID
   }
 
-  async update(changes: Partial<T>): Promise<Model<T>> {
+  async update(changes: Partial<T>): Promise<Model<T, R> & T> {
     return this.#collection.update(this.id, changes)
   }
 
@@ -134,6 +138,13 @@ export class Model<T extends object = Record<string, unknown>> {
    *   const posts = await user.load("posts")        // arrays
    *   const author = await post.load("author")      // single model
    */
+  async load<K extends HasManyKeys<R>>(name: K): Promise<(Model<DocOf<R[K]>> & DocOf<R[K]>)[]>
+  async load<K extends ToOneKeys<R>>(
+    name: K,
+  ): Promise<(Model<DocOf<R[K]>> & DocOf<R[K]>) | undefined>
+  async load(
+    name: [keyof R] extends [never] ? string : never,
+  ): Promise<Model<Record<string, unknown>>[] | Model<Record<string, unknown>> | undefined>
   async load(
     relationName: string,
   ): Promise<Model<Record<string, unknown>>[] | Model<Record<string, unknown>> | undefined> {
