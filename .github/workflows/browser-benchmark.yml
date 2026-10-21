@@ -11,6 +11,19 @@ on:
         description: "Independent rounds per case (median is reported)"
         required: false
         default: "5"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/browser-benchmark.yml"
+      - "scripts/browser-bench/**"
+      - "src/adapter/idb.ts"
+      - "src/collection.ts"
+      - "src/database.ts"
+      - "src/schema.ts"
+      - "src/transaction-context.ts"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: read
@@ -37,8 +50,8 @@ jobs:
       - name: Benchmark native IndexedDB
         run: node scripts/browser-bench/run.mjs
         env:
-          BROWSER_BENCH_ROWS: ${{ inputs.rows }}
-          BROWSER_BENCH_ROUNDS: ${{ inputs.rounds }}
+          BROWSER_BENCH_ROWS: ${{ inputs.rows || '500' }}
+          BROWSER_BENCH_ROUNDS: ${{ inputs.rounds || '5' }}
           BROWSER_BENCH_OUT: ${{ runner.temp }}/ctrodb-indexeddb-benchmark.json
 
       - uses: actions/upload-artifact@v4

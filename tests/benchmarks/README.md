@@ -18,10 +18,12 @@ The `Browser write benchmark` workflow runs real Chromium IndexedDB (not
 `fake-indexeddb`) and reports median timings by index count and key cardinality.
 It compares per-record `create()` with `createMany()`, one-field updates through
 the normal API with updates grouped inside `db.transaction()`, and transaction
-updates that change every indexed field. The workflow is manual so normal CI does
-not pay the Chromium download/runtime cost; run it from **Actions → Browser write
-benchmark → Run workflow**. The raw JSON samples are retained as a downloadable
-artifact, and the result table is added to the workflow summary.
+updates that change every indexed field. It runs manually from **Actions →
+Browser write benchmark → Run workflow**, and automatically when the benchmark
+harness or the relevant IndexedDB write-path files change on `main`; unrelated
+CI runs do not pay the Chromium download/runtime cost. The raw JSON samples are
+retained as a downloadable artifact, and the result table is added to the
+workflow summary.
 
 Locally, after installing Chromium with `npx playwright install chromium`, run:
 
