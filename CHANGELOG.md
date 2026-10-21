@@ -3,6 +3,35 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.9.0] - 2026-10-21
+
+### Added
+- **Typed lazy relation getters.** `model.<relation>` has always returned a
+  `QueryBuilder`, and the README documented `await post.author.first()`, but the
+  getter was invisible to TypeScript: only `load()` was typed, so the documented
+  example did not compile (audit M-13). Models now carry the relation map:
+
+  ```typescript
+  const latest = await post.author.sort({ name: "desc" }).first()   // Author | undefined
+  const drafts = await author.posts.where("draft", "==", true).fetch() // Post[]
+  post.posts        // compile error: not a relation of `posts`
+  post.author.posts // compile error: a to-one relation has no collection
+  ```
+
+- **`ModelInstance<T, R>`** and **`RelationAccessors<R>`** are exported: the
+  full model type the API returns (methods + document fields + relation getters),
+  so wrappers and helpers can name it instead of reconstructing the intersection.
+- **`useQuery`, `useDoc` and `useMutation` accept the relation map**
+  (`useQuery<Post, RelationsOf<TypedSchema, "posts">>`), so hook results expose
+  the same typed getters as `collection()` results. Existing calls are
+  unaffected: the parameter defaults to no relations.
+
+### Verification
+- `scripts/type-smoke/schema-types.ts` asserts the typed getters against the
+  **built** declarations, including the two rejected shapes above.
+- `tests/integration/schema-types.test.ts` asserts the runtime agrees: the getter
+  is a builder that filters, and `author()` resolves the related record.
+
 ## [1.8.2] - 2026-10-21
 
 ### Performance

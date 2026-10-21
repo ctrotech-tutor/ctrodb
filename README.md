@@ -515,10 +515,18 @@ With a `defineSchema()` schema, the resolved type is derived from the relation:
 
 `load(name)` resolves to an array for `has_many` and to a single record for
 `has_one`/`belongs_to`. It rejects when the name is not a declared relation,
-instead of resolving `undefined`. `model.<relation>` also exists as a lazy
-`QueryBuilder` for when you need to filter the related rows; relations are not
-inferred from the schema in the type system yet, so that form is typed as a
-`QueryBuilder` only through `load()` — use `load()` in typed code.
+instead of resolving `undefined`.
+
+`model.<relation>` is the same relation as a lazy `QueryBuilder`, for when you
+want to filter before loading — and it is typed from the schema too:
+
+```typescript
+const latest = await post.author.sort({ name: "desc" }).first()  // Author | undefined
+const drafts = await author.posts.where("draft", "==", true).fetch()  // Post[]
+```
+
+A relation that the collection does not declare is a compile error, and so is
+reaching a relation through the wrong shape (e.g. `post.author.posts`).
 
 ## Ordering
 

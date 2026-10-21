@@ -4,12 +4,15 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
+import type { Collection } from "./collection"
 import type { Database } from "./database"
-import type { Model } from "./model/index"
+import type { ModelInstance } from "./model/index"
 import type { QueryBuilder } from "./query/builder"
+import type { RelationShapes } from "./schema-types"
 import { createSyncEventLog, inspectSyncQueue, retryFailedSync } from "./sync/devtools"
 import type { SyncEvent, SyncQueueSnapshot, SyncStatus } from "./sync/types"
 import type { ChangeEvent, ID } from "./types"
@@ -52,26 +55,26 @@ export function useDatabase(): Database {
  */
 const COALESCE_MS = 16
 
-export interface QueryResult<T extends object> {
-  data: Array<Model<T> & T>
+export interface QueryResult<T extends object, R extends RelationShapes = Record<never, never>> {
+  data: ModelInstance<T, R>[]
   loading: boolean
   error: Error | undefined
 }
 
-export interface DocResult<T extends object> {
-  data: (Model<T> & T) | undefined
+export interface DocResult<T extends object, R extends RelationShapes = Record<never, never>> {
+  data: ModelInstance<T, R> | undefined
   loading: boolean
   error: Error | undefined
 }
 
-export function useQuery<T extends object>(
+export function useQuery<T extends object, R extends RelationShapes = Record<never, never>>(
   collectionName: string,
-  queryFn?: (q: QueryBuilder<T>) => QueryBuilder<T>,
+  queryFn?: (q: QueryBuilder<T, R>) => QueryBuilder<T, R>,
   deps: unknown[] = [],
-): QueryResult<T> {
+): QueryResult<T, R> {
   const db = useDatabase()
   const [state, setState] = useState<{
-    data: Array<Model<T> & T>
+    data: ModelInstance<T, R>[]
     loading: boolean
     error: Error | undefined
   }>({ data: [], loading: true, error: undefined })
@@ -105,7 +108,7 @@ export function useQuery<T extends object>(
   // between renders (which is the whole point of the version counter).
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger
   useEffect(() => {
-    const collection = db.collection<T>(collectionName)
+    const collection = db.collection<T>(collectionName) as unknown as Collection<T, R>
     let disposed = false
     let scheduled: ReturnType<typeof setTimeout> | null = null
     // Sequence number per request: a slow response must never overwrite data
@@ -164,16 +167,21 @@ export function useQuery<T extends object>(
   return state
 }
 
-export function useDoc<T extends object>(collectionName: string, id: ID | undefined): DocResult<T> {
-  const { data, loading, error } = useQuery<T>(collectionName, (q) => q.where("id", "==", id), [id])
+export function useDoc<T extends object, R extends RelationShapes = Record<never, never>>(
+  collectionName: string,
+  id: ID | undefined,
+): DocResult<T, R> {
+  const { data, loading, error } = useQuery<T, R>(collectionName, (q) => q.where("id", "==", id), [
+    id,
+  ])
   return { data: data[0], loading, error }
 }
 
-export function useMutation<T extends object>(
+export function useMutation<T extends object, R extends RelationShapes = Record<never, never>>(
   collectionName: string,
 ): {
-  create: (data: Omit<T, "id"> & { id?: ID }) => Promise<Model<T> & T>
-  update: (id: ID, changes: Partial<T>) => Promise<Model<T> & T>
+  create: (data: Omit<T, "id"> & { id?: ID }) => Promise<ModelInstance<T, R>>
+  update: (id: ID, changes: Partial<T>) => Promise<ModelInstance<T, R>>
   delete: (id: ID) => Promise<void>
   loading: boolean
   error: Error | undefined
@@ -182,13 +190,18 @@ export function useMutation<T extends object>(
   const db = useDatabase()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | undefined>()
+  // Same reason as useQuery(): the collection carries the relation map `R`.
+  const collection = useMemo(
+    () => db.collection<T>(collectionName) as unknown as Collection<T, R>,
+    [db, collectionName],
+  )
 
   const create = useCallback(
     async (data: Omit<T, "id"> & { id?: ID }) => {
       setLoading(true)
       setError(undefined)
       try {
-        return await db.collection<T>(collectionName).create(data)
+        return await collection.create(data)
       } catch (e) {
         setError(e as Error)
         throw e
@@ -196,7 +209,7 @@ export function useMutation<T extends object>(
         setLoading(false)
       }
     },
-    [collectionName, db],
+    [collection],
   )
 
   const update = useCallback(
@@ -204,7 +217,7 @@ export function useMutation<T extends object>(
       setLoading(true)
       setError(undefined)
       try {
-        return await db.collection<T>(collectionName).update(id, changes)
+        return await collection.update(id, changes)
       } catch (e) {
         setError(e as Error)
         throw e
@@ -212,7 +225,7 @@ export function useMutation<T extends object>(
         setLoading(false)
       }
     },
-    [collectionName, db],
+    [collection],
   )
 
   const del = useCallback(
@@ -220,7 +233,7 @@ export function useMutation<T extends object>(
       setLoading(true)
       setError(undefined)
       try {
-        await db.collection<T>(collectionName).delete(id)
+        await collection.delete(id)
       } catch (e) {
         setError(e as Error)
         throw e
@@ -228,7 +241,7 @@ export function useMutation<T extends object>(
         setLoading(false)
       }
     },
-    [collectionName, db],
+    [collection],
   )
 
   const reset = useCallback(() => {

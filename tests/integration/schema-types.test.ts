@@ -93,6 +93,33 @@ describe("createDatabase", () => {
     await db.disconnect()
   })
 
+  it("types the lazy relation getters as query builders (M-13)", async () => {
+    const db = createDatabase({
+      name: `schema-relations-${Math.random()}`,
+      adapter: "memory",
+      schema,
+    })
+    await db.connect()
+
+    const authors = db.collection("authors")
+    const posts = db.collection("posts")
+    const ada = await authors.create({ name: "Ada" })
+    await posts.create({ title: "Draft", authorId: ada.id, draft: true })
+    await posts.create({ title: "Live", authorId: ada.id, draft: false })
+
+    // The getter is a builder, not pre-fetched data: it can still be filtered.
+    const drafts = await ada.posts.where("draft", "==", true).fetch()
+    expect(drafts.map((p) => p.title)).toEqual(["Draft"])
+    expectTypeOf(drafts[0]?.title).toEqualTypeOf<string | undefined>()
+
+    const post = await posts.query().first()
+    const back = await post?.author.first()
+    expect(back?.name).toBe("Ada")
+    expectTypeOf(back?.name).toEqualTypeOf<string | undefined>()
+
+    await db.disconnect()
+  })
+
   it("rejects an undeclared collection at runtime", async () => {
     const db = createDatabase({ name: "schema-types-typo", schema, adapter: "memory" })
     await db.connect()
