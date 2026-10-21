@@ -26,7 +26,8 @@ export default defineConfig({
           environment: "node",
           setupFiles: ["./tests/setup.ts"],
           include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
-          exclude: ["tests/node/**"],
+          exclude: ["tests/node/**", "tests/benchmarks/**"],
+          benchmark: { include: ["tests/benchmarks/**/*.bench.ts"] },
         },
       },
       {
@@ -36,6 +37,7 @@ export default defineConfig({
           environment: "node",
           setupFiles: [],
           include: ["tests/node/**/*.test.ts"],
+          benchmark: { include: [] },
         },
       },
     ],

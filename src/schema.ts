@@ -27,12 +27,16 @@ export class Schema {
     }
 
     this.version = config.version
-    this.collections = { ...config.collections }
 
-    for (const [name, col] of Object.entries(this.collections)) {
+    // Build the effective collection map first (field-level `unique` becomes a
+    // unique index), then publish it as readonly.
+    const collections: Record<string, CollectionSchema> = { ...config.collections }
+
+    for (const [name, col] of Object.entries(collections)) {
       if (!col.fields || typeof col.fields !== "object" || Object.keys(col.fields).length === 0) {
         throw new SchemaError(`Collection "${name}" must define at least one field.`)
       }
+
       if (col.indexes) {
         for (const idx of col.indexes) {
           if (!col.fields[idx.field]) {
@@ -42,7 +46,33 @@ export class Schema {
           }
         }
       }
+
+      // A field declared `unique: true` must become a unique index: that is the
+      // only mechanism the adapters enforce, so without this the declaration
+      // was decorative (audit M-03).
+      const fieldUnique = Object.entries(col.fields)
+        .filter(([, def]) => def.unique === true)
+        .map(([fieldName]) => fieldName)
+
+      if (fieldUnique.length > 0) {
+        const indexes = [...(col.indexes ?? [])]
+        for (const fieldName of fieldUnique) {
+          const existing = indexes.find((idx) => idx.field === fieldName)
+          if (existing) {
+            if (!existing.unique) {
+              throw new SchemaError(
+                `Field "${name}.${fieldName}" is declared unique but its index is not unique.`,
+              )
+            }
+            continue
+          }
+          indexes.push({ field: fieldName, unique: true })
+        }
+        collections[name] = { ...col, indexes }
+      }
     }
+
+    this.collections = collections
   }
 
   getIndexes(collectionName: string): IndexDefinition[] {
@@ -115,6 +145,9 @@ export class Schema {
         }
         if (def.validate instanceof RegExp && !def.validate.test(value)) {
           throw new ValidationError(collectionName, fieldName, "failed regex validation", value)
+        }
+        if (typeof def.validate === "function" && !def.validate(value)) {
+          throw new ValidationError(collectionName, fieldName, "failed custom validation", value)
         }
       }
 

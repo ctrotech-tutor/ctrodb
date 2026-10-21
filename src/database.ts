@@ -84,17 +84,37 @@ export class Database {
 
     await this.#adapter.connect(this.name, schemaConfig as unknown as SchemaConfig)
 
-    this.#connected = true
-
-    for (const plugin of this.#plugins) {
-      if (plugin.onDatabaseInit) {
-        await plugin.onDatabaseInit(this)
+    try {
+      for (const plugin of this.#plugins) {
+        if (plugin.onDatabaseInit) {
+          await plugin.onDatabaseInit(this)
+        }
       }
+    } catch (error) {
+      // A failed initialisation must not leave a half-initialised instance
+      // claiming to be connected: callers would then treat it as usable.
+      await this.#adapter.disconnect().catch(() => {})
+      this.#connected = false
+      throw error
     }
+
+    this.#connected = true
   }
 
   async disconnect(): Promise<void> {
     if (!this.#connected) return
+
+    // Tear down plugins first (reverse order) so timers, channels and
+    // listeners stop before the storage goes away (audit M-10).
+    for (const plugin of [...this.#plugins].reverse()) {
+      if (plugin.onDatabaseDestroy) {
+        try {
+          await plugin.onDatabaseDestroy(this)
+        } catch (error) {
+          console.error(`[ctrodb] plugin "${plugin.name}" failed to shut down:`, error)
+        }
+      }
+    }
 
     await this.#adapter.disconnect()
     this.#collections.clear()

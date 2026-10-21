@@ -101,7 +101,7 @@ function rewrite(reactPath, rootPath, importSpecifier) {
   console.log(`  ${reactPath}: ${removed.size} core declarations replaced by "${importSpecifier}"`)
 }
 
-rewrite("../dist/react/react.d.ts", "../dist/index.d.ts", "../index")
+rewrite("../dist/react/react.d.ts", "../dist/index.d.ts", "../index.js")
 rewrite("../dist/react/react.d.cts", "../dist/index.d.cts", "../index.cjs")
 
 // Sanity check: the public entry points must still agree on one Database type.
