@@ -46,6 +46,12 @@ export function useDatabase(): Database {
   return getDb()
 }
 
+/**
+ * How long a change burst is coalesced for before refetching. One animation
+ * frame's worth: imperceptible to users, but it turns N events into one query.
+ */
+const COALESCE_MS = 16
+
 export interface QueryResult<T extends Record<string, unknown>> {
   data: Array<Model<T> & T>
   loading: boolean
@@ -64,48 +70,98 @@ export function useQuery<T extends Record<string, unknown>>(
   deps: unknown[] = [],
 ): QueryResult<T> {
   const db = useDatabase()
-  const [results, setResults] = useState<Array<Model<T> & T>>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | undefined>()
+  const [state, setState] = useState<{
+    data: Array<Model<T> & T>
+    loading: boolean
+    error: Error | undefined
+  }>({ data: [], loading: true, error: undefined })
+
+  // Always run the newest query function without making the effect depend on
+  // it: callers routinely pass an inline arrow, which would otherwise refetch
+  // on every render.
   const queryFnRef = useRef(queryFn)
   queryFnRef.current = queryFn
 
+  // `deps` is a caller-supplied array whose *length* may change between
+  // renders. Spreading it into the dependency list (the previous behaviour)
+  // makes React see a different array size and throw. Compare it separately and
+  // feed the effect a fixed-size key instead.
+  const depsRef = useRef<unknown[]>(deps)
+  const [depsVersion, setDepsVersion] = useState(0)
+
+  useEffect(() => {
+    const previous = depsRef.current
+    const changed =
+      previous.length !== deps.length ||
+      deps.some((value, index) => !Object.is(value, previous[index]))
+    if (changed) {
+      depsRef.current = deps
+      setDepsVersion((version) => version + 1)
+    }
+  })
+
+  // `depsVersion` is the trigger: the caller's `deps` array is compared in the
+  // effect above and cannot be listed directly, because its length may change
+  // between renders (which is the whole point of the version counter).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger
   useEffect(() => {
     const collection = db.collection<T>(collectionName)
-    let cancelled = false
+    let disposed = false
+    let scheduled: ReturnType<typeof setTimeout> | null = null
+    // Sequence number per request: a slow response must never overwrite data
+    // from a newer query (audit M-16).
+    let latestRequest = 0
 
-    async function runQuery() {
-      setLoading(true)
-      setError(undefined)
+    const run = (initial: boolean) => {
+      const request = ++latestRequest
+
+      if (initial) {
+        setState((current) => ({ ...current, loading: true, error: undefined }))
+      }
+
       let query = collection.query()
       if (queryFnRef.current) {
         query = queryFnRef.current(query)
       }
-      try {
-        const data = await query.fetch()
-        if (!cancelled) setResults(data)
-      } catch (e) {
-        if (!cancelled) setError(e as Error)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+
+      query
+        .fetch()
+        .then((data) => {
+          if (disposed || request !== latestRequest) return
+          setState({ data, loading: false, error: undefined })
+        })
+        .catch((caught: unknown) => {
+          if (disposed || request !== latestRequest) return
+          setState((current) => ({
+            ...current,
+            loading: false,
+            error: caught instanceof Error ? caught : new Error(String(caught)),
+          }))
+        })
     }
 
-    runQuery()
+    run(true)
 
-    const unsub = db.on((_event: ChangeEvent) => {
-      if (_event.collection === collectionName) {
-        runQuery()
-      }
+    const unsubscribe = db.on((event: ChangeEvent) => {
+      if (event.collection !== collectionName) return
+
+      // Coalesce bursts: a bulk import or a sync pull emits one event per
+      // record, and each used to trigger its own full refetch.
+      if (scheduled) clearTimeout(scheduled)
+      scheduled = setTimeout(() => {
+        scheduled = null
+        run(false) // background refresh: keep the current data, no spinner
+      }, COALESCE_MS)
     })
 
     return () => {
-      cancelled = true
-      unsub()
+      disposed = true
+      unsubscribe()
+      if (scheduled) clearTimeout(scheduled)
     }
-  }, [collectionName, db, ...deps])
+  }, [collectionName, db, depsVersion])
 
-  return { data: results, loading, error }
+  return state
 }
 
 export function useDoc<T extends Record<string, unknown>>(

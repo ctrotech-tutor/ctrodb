@@ -426,6 +426,42 @@ With a schema configured, the schema is the source of truth:
   id throws a duplicate-record error. Both are exported classes, so prefer
   `instanceof` over matching message text.
 
+## Models
+
+Query results are `Model` instances that forward property reads to the stored
+record, so `todo.text` and `user.name` work as expected, and `.update()` /
+`.delete()` act on that record.
+
+```ts
+const todo = await db.collection("todos").get("t1")
+todo.text                                  // stored field
+await todo.update({ done: true })
+await todo.delete()
+
+Object.keys(todo)                          // ["id", "text", "done", ...]
+const plain = { ...todo }                  // a plain object of the record
+```
+
+Direct assignment (`todo.text = "x"`) throws: it cannot persist on its own, and
+silently accepting it used to look successful while losing the change. Use
+`update()`.
+
+### Relations
+
+Relations are declared in the schema and come in two forms, deliberately:
+
+```ts
+const author = await db.collection("authors").get("a1")
+
+const posts  = await author.load("posts")    // data: an array (has_many)
+const posts2 = await author.posts.fetch()    // data: a lazy query you can filter
+const eager  = await db.collection("authors").with("posts").fetch() // data: arrays
+```
+
+`load(name)` is the single "give me the data" call: it resolves to an array for
+`has_many` and to one record for `has_one`/`belongs_to`. `load()` rejects if the
+name is not a declared relation.
+
 ## Ordering
 
 `query().fetch()` returns records in **primary-key ascending** order unless you
@@ -629,12 +665,36 @@ function TodoList() {
 
 | Hook | Returns | Description |
 |---|---|---|
-| `useQuery<T>(name, queryFn?, deps?)` | `{ data: (Model<T> & T)[]; loading: boolean; error: Error \| null }` | Reactive query, re-fetches on changes |
-| `useDoc<T>(name, id)` | `{ data: (Model<T> & T) \| undefined; loading: boolean; error: Error \| null }` | Single document by ID |
-| `useMutation<T>(name)` | `{ create, update, delete, loading, error, reset }` | CRUD with loading/error state |
-| `useSyncStatus()` | `SyncStatus` | Poll + event-driven sync status (connected, pending/failed changes) |
-| `useSync(callback?)` | `() => Promise<void>` | Trigger manual sync + optional event listener |
-| `useSyncQueue(db)` | `SyncQueueSnapshot` | Real-time sync queue for dev tools |
+| `useQuery<T>(name, queryFn?, deps?)` | `{ data: (Model<T> & T)[]; loading: boolean; error: Error \| undefined }` | Reactive query; refetches on changes for that collection |
+| `useDoc<T>(name, id)` | `{ data: (Model<T> & T) \| undefined; loading: boolean; error: Error \| undefined }` | Single document by ID |
+| `useMutation<T>(name)` | `{ create, update, delete, loading, error, reset }` | CRUD with loading/error state; `delete` is aliased from `del` |
+| `useSyncStatus()` | `SyncStatusResult` — `{ status, isConnected, pendingCount, failedCount, lastError, refresh }` | Sync connection and queue counts |
+| `useSync(callback?)` | `{ sync: () => Promise<void>; status: SyncStatusResult }` | Trigger a sync and observe its status |
+| `useSyncQueue()` | `{ snapshot: SyncQueueSnapshot; loading: boolean; error?: Error; refresh: () => Promise<void> }` | Live sync queue for dev tools |
+| `useDatabase()` | `Database` | The instance from `<DatabaseProvider>` |
+| `<DatabaseProvider db>` / `<SyncDevPanel />` | — | Context provider and a ready-made queue inspector |
+
+`deps` is a dependency array with the same meaning as in `useEffect`, with one
+difference: its **length may change between renders** (React forbids that for
+`useEffect`, and the hook used to forward it directly). Values are compared with
+`Object.is`, so pass primitives or memoised objects.
+
+```tsx
+// Re-runs whenever `status` or `page` changes.
+const { data, loading, error } = useQuery("todos", (q) => q.where("status", "==", status), [
+  status,
+  page,
+])
+```
+
+Behaviour worth knowing:
+
+- **`loading` is only true for the first load.** A background refetch keeps the
+  current data on screen and leaves `loading` false, so lists do not flash.
+- **Change events are coalesced** (one animation frame); a bulk import or a sync
+  pull triggers one refetch, not one per record.
+- **Responses are sequenced.** A slow query that resolves after a newer one is
+  discarded instead of overwriting fresher data.
 | `<SyncDevPanel db={db} />` | Component | Dark-themed sync admin panel with stats, retry, event log |
 
 ---

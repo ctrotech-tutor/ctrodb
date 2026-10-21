@@ -69,6 +69,52 @@ describe("relations plugin integration", () => {
     await db.disconnect()
   })
 
+  it("load() returns relation data in one documented shape (M-13)", async () => {
+    const db = new Database({
+      name: "relations-load-test",
+      adapter: "memory",
+      schema: {
+        version: 1,
+        collections: {
+          authors: {
+            fields: { name: { type: "string" } },
+            relations: {
+              posts: { type: "has_many", collection: "posts", foreignKey: "authorId" },
+            },
+          },
+          posts: {
+            fields: { title: { type: "string" }, authorId: { type: "string" } },
+            relations: {
+              author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },
+            },
+          },
+        },
+      },
+      plugins: [relationsPlugin()],
+    })
+    await db.connect()
+
+    const alice = await db.collection("authors").create({ name: "Alice" })
+    await db.collection("posts").create({ title: "A1", authorId: alice.id })
+    await db.collection("posts").create({ title: "A2", authorId: alice.id })
+
+    // has_many resolves to an array…
+    const posts = await alice.load("posts")
+    expect(Array.isArray(posts)).toBe(true)
+    expect((posts as Array<{ title: string }>).map((p) => p.title).sort()).toEqual(["A1", "A2"])
+
+    // …belongs_to resolves to a single record.
+    const post = await db.collection("posts").create({ title: "A3", authorId: alice.id })
+    const author = await post.load("author")
+    expect(Array.isArray(author)).toBe(false)
+    expect((author as { name?: string } | undefined)?.name).toBe("Alice")
+
+    // An unknown relation is a programming error, not `undefined`.
+    await expect(alice.load("nope")).rejects.toThrow(/not a relation/)
+
+    await db.disconnect()
+  })
+
   it("handles empty relations gracefully", async () => {
     const schema = new Schema({
       version: 1,
@@ -106,6 +152,52 @@ describe("relations plugin integration", () => {
     const authors = await db.collection("authors").with("posts").fetch()
     expect(authors).toHaveLength(1)
     expect(authors[0].posts).toEqual([])
+
+    await db.disconnect()
+  })
+
+  it("load() returns relation data in one documented shape (M-13)", async () => {
+    const db = new Database({
+      name: "relations-load-test",
+      adapter: "memory",
+      schema: {
+        version: 1,
+        collections: {
+          authors: {
+            fields: { name: { type: "string" } },
+            relations: {
+              posts: { type: "has_many", collection: "posts", foreignKey: "authorId" },
+            },
+          },
+          posts: {
+            fields: { title: { type: "string" }, authorId: { type: "string" } },
+            relations: {
+              author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },
+            },
+          },
+        },
+      },
+      plugins: [relationsPlugin()],
+    })
+    await db.connect()
+
+    const alice = await db.collection("authors").create({ name: "Alice" })
+    await db.collection("posts").create({ title: "A1", authorId: alice.id })
+    await db.collection("posts").create({ title: "A2", authorId: alice.id })
+
+    // has_many resolves to an array…
+    const posts = await alice.load("posts")
+    expect(Array.isArray(posts)).toBe(true)
+    expect((posts as Array<{ title: string }>).map((p) => p.title).sort()).toEqual(["A1", "A2"])
+
+    // …belongs_to resolves to a single record.
+    const post = await db.collection("posts").create({ title: "A3", authorId: alice.id })
+    const author = await post.load("author")
+    expect(Array.isArray(author)).toBe(false)
+    expect((author as { name?: string } | undefined)?.name).toBe("Alice")
+
+    // An unknown relation is a programming error, not `undefined`.
+    await expect(alice.load("nope")).rejects.toThrow(/not a relation/)
 
     await db.disconnect()
   })

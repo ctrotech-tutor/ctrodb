@@ -2,7 +2,7 @@ import type { Collection } from "../collection"
 import type { Database } from "../database"
 import type { ChangeEvent, ID, StorageAdapter } from "../types"
 import { REMOTE_WRITE } from "../write-context"
-import { ChangeTracker } from "./change-tracker"
+import { ChangeTracker, closeChangeChannel, TAB_ID } from "./change-tracker"
 import { ConflictResolverEngine } from "./conflict-resolver"
 import type {
   ConflictStrategy,
@@ -127,19 +127,18 @@ export class SyncEngine {
     try {
       this.#broadcastChannel = new BroadcastChannel("ctrodb:sync")
       this.#broadcastChannel.onmessage = (event: MessageEvent) => {
-        if (event.data?.type === "change") {
-          this.#emit({ phase: "push" } as {
-            phase: SyncPhase
-            progress?: SyncProgress
-            error?: Error
-          })
-          this.#db._emit({
-            type: event.data.changeType,
-            collection: event.data.collection,
-            recordId: event.data.recordId,
-          } as ChangeEvent)
-          this.triggerSync()
-        }
+        if (event.data?.type !== "change") return
+
+        // Ignore our own writes echoed back by the channel: the local write
+        // already emitted its change event and is already queued (audit M-09).
+        if (event.data.origin === TAB_ID) return
+
+        this.#db._emit({
+          type: event.data.changeType,
+          collection: event.data.collection,
+          recordId: event.data.recordId,
+        } as ChangeEvent)
+        this.triggerSync()
       }
     } catch {
       this.#broadcastChannel = null
@@ -187,6 +186,7 @@ export class SyncEngine {
       this.#broadcastChannel.close()
       this.#broadcastChannel = null
     }
+    closeChangeChannel()
 
     // ── Remove online/offline listeners ──
     if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {

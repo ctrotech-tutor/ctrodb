@@ -5,6 +5,43 @@ import type { SyncChangeRecord, SyncChangeStatus, SyncChangeType } from "./types
 export const SYNC_STORE = "_ctrodb_sync_changes"
 
 /**
+ * Identifies this JavaScript context (tab / worker / process).
+ *
+ * Writes broadcast their origin so a receiver can tell "another tab changed
+ * this" from "I changed this". Without it, every local write echoed back into
+ * the same tab's engine, which emitted a bogus push phase, re-emitted the
+ * change event and scheduled a redundant sync (audit M-09).
+ */
+export const TAB_ID: string = (() => {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  }
+})()
+
+let changeChannel: BroadcastChannel | null = null
+
+/** Lazily create one channel for the whole context instead of one per write. */
+function getChangeChannel(): BroadcastChannel | null {
+  if (changeChannel) return changeChannel
+  try {
+    changeChannel = new BroadcastChannel("ctrodb:sync")
+    return changeChannel
+  } catch {
+    return null // BroadcastChannel unavailable (older runtimes)
+  }
+}
+
+/** Release the shared channel; called from the sync engine's destroy(). */
+export function closeChangeChannel(): void {
+  if (!changeChannel) return
+  changeChannel.onmessage = null
+  changeChannel.close()
+  changeChannel = null
+}
+
+/**
  * Persistent queue of not-yet-acknowledged local writes.
  *
  * Status lookups go through the adapter's index-scan contract using a
@@ -62,19 +99,16 @@ export class ChangeTracker {
     }
     await this.#adapter.create(this.storeName, record as unknown as Record<string, unknown>)
 
-    // Broadcast change to other tabs (graceful fallback if BroadcastChannel unavailable)
-    try {
-      const channel = new BroadcastChannel("ctrodb:sync")
-      channel.postMessage({
-        type: "change",
-        collection,
-        recordId,
-        changeType: type,
-      })
-      channel.close()
-    } catch {
-      // BroadcastChannel unavailable (Node.js, older browsers)
-    }
+    // Announce the write to *other* contexts. The shared channel is reused, and
+    // the message carries this context's id so receivers can ignore their own
+    // echo (audit M-09).
+    getChangeChannel()?.postMessage({
+      type: "change",
+      origin: TAB_ID,
+      collection,
+      recordId,
+      changeType: type,
+    })
 
     return id
   }
