@@ -20,10 +20,11 @@ It compares per-record `create()` with `createMany()`, one-field updates through
 the normal API with updates grouped inside `db.transaction()`, and transaction
 updates that change every indexed field. It runs manually from **Actions →
 Browser write benchmark → Run workflow**, and automatically when the benchmark
-harness or the relevant IndexedDB write-path files change on `main`; unrelated
-CI runs do not pay the Chromium download/runtime cost. The raw JSON samples are
-retained as a downloadable artifact, and the result table is added to the
-workflow summary.
+harness or the relevant IndexedDB write-path files change on `main`; those
+automatic runs use 2,000 rows and 5 rounds for a more informative trend sample.
+Manual dispatch defaults to 500 rows and 5 rounds. Unrelated CI runs do not pay
+the Chromium download/runtime cost. The raw JSON samples are retained as a
+downloadable artifact, and the result table is added to the workflow summary.
 
 Locally, after installing Chromium with `npx playwright install chromium`, run:
 
