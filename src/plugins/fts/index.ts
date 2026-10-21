@@ -1,19 +1,73 @@
 import type { Collection } from "../../collection"
 import type { Database } from "../../database"
 import type { CtroDBPlugin, ID } from "../../types"
-import { FTSIndexer } from "./indexer"
+import { FTS_FORMAT, FTS_INDEXED_FIELDS, FTS_STORE, FTSIndexer } from "./indexer"
+
+/** Where the index format version is persisted (`StorageAdapter.getMetadata`). */
+const FORMAT_KEY = "_ctrodb_fts_format"
 
 export function ftsPlugin(): CtroDBPlugin {
   let indexer: FTSIndexer
+  let database: Database | undefined
   const searchableFieldsMap = new Map<string, string[]>()
+
+  /**
+   * Upgrade a legacy index (format 1) in place.
+   *
+   * Format 1 records cannot be read by the posting store — they are a different
+   * shape entirely — so they are dropped and rebuilt from the collections. The
+   * index is derived data, so rebuilding is always safe; doing it once at
+   * connect keeps search results complete across the upgrade.
+   */
+  async function migrate(): Promise<void> {
+    const adapter = database?._getAdapter()
+    if (!adapter) return
+
+    const stored = await adapter.getMetadata(FORMAT_KEY)
+    if (Number(stored) >= FTS_FORMAT) return
+
+    const existing = await adapter.findAll(FTS_STORE)
+    const hasLegacyRecords = existing.some(
+      (record) => (record as { docId?: unknown }).docId === undefined,
+    )
+
+    if (hasLegacyRecords) {
+      await indexer.clear()
+      await rebuild()
+    }
+
+    await adapter.setMetadata(FORMAT_KEY, FTS_FORMAT)
+  }
+
+  /** Re-index every searchable collection from its rows. */
+  async function rebuild(): Promise<void> {
+    const schema = database?._getSchema()
+    const adapter = database?._getAdapter()
+    if (!schema || !adapter) return
+
+    for (const collectionName of Object.keys(schema.collections)) {
+      const fields = schema.getSearchableFields(collectionName)
+      if (!fields || fields.length === 0) continue
+
+      const records = await adapter.findAll(collectionName)
+      for (const record of records) {
+        await indexer.indexRecord(collectionName, record as Record<string, unknown>, fields)
+      }
+    }
+  }
 
   return {
     name: "fts",
-    version: "1.0.0",
-    storeNames: ["_ctrodb_fts"],
+    version: "2.0.0",
 
-    onDatabaseInit(db: Database) {
+    // Declaring the indexes is what lets `FTSIndexer.search` answer a token
+    // lookup with one index scan instead of reading the whole posting store.
+    storeNames: [{ name: FTS_STORE, indexes: FTS_INDEXED_FIELDS.map((field) => ({ field })) }],
+
+    async onDatabaseInit(db: Database) {
+      database = db
       indexer = new FTSIndexer(db._getAdapter())
+      await migrate()
     },
 
     onCollectionInit(collection: Collection<Record<string, unknown>>) {

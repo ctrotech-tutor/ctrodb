@@ -3,6 +3,75 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.9.2] - 2026-10-21
+
+### Fixed
+- **The full-text index lost entries, and could fail, when writes overlapped.**
+  The index kept one record per token holding a `docIds` array, and every write
+  read that array, mutated it and wrote it back. Two writes to the same token
+  therefore raced, and the second one's `create` could throw:
+
+  | scenario | before | after |
+  |---|---|---|
+  | 50 concurrent `create()` calls sharing a token | **1** of 50 indexed | 50 of 50 |
+  | 300 concurrent `FTSIndexer.indexRecord()` calls | threw `Record "docs:common" already exists` | no error, 300 of 300 |
+
+  The failure was also silent in the plugin path: the duplicate-key error was
+  logged as a plugin failure while `create()` still resolved, so the write
+  looked successful and simply was not searchable.
+
+  The index now stores **one record per (collection, token, document) posting**.
+  Each posting is an independent insert or delete, so writes do not race, are
+  idempotent (re-indexing the same document is a no-op) and never read the
+  index before writing to it.
+
+### Performance
+The same layout change removes the quadratic cost of maintaining the index —
+every write used to copy a posting list that grew with the collection.
+
+| measurement (memory adapter) | before | after |
+|---|---|---|
+| index 8,000 documents | 3,968 ms (496 µs/doc) | **261 ms** (33 µs/doc) — ~15x |
+| per-document cost, 1k → 8k docs | 97 → 496 µs (grows with N) | 48 → 33 µs (flat) |
+| `deleteMany` of 4,000 indexed documents | 3,496 ms | **150 ms** — ~23x |
+| 5,000 `create()` calls with plugins | 10,150/s | **28,539/s** |
+| `delete` with plugins | 500 µs | **32 µs** |
+
+`FTSIndexer.search()` uses a `token` index on the posting store (declared by the
+plugin) so a query token is one index scan. An indexer constructed directly over
+an adapter connected without a schema falls back to scanning the posting store —
+same results, slower.
+
+### Added
+- **`StorageAdapter.hasIndex?(collection, indexName)`** — optional, so plugins
+  can choose an indexed lookup over a scan. Adapters without it are treated as
+  "no index" and take the scan path.
+- **`StorageAdapter.findByIds?(collection, ids)`** — optional bulk read, used by
+  `Collection.deleteMany()`. It previously read the records one at a time to
+  fill in `oldRecord` for its events; on IndexedDB that was one transaction per
+  id (1,000 transactions to delete 1,000 rows). Adapters without the method keep
+  the per-id loop. Delete events and their `oldRecord` payloads are unchanged.
+
+### Migration
+An index written in the previous format is detected at `connect()`, dropped and
+rebuilt from the collections (the index is derived data, so this is safe), then
+recorded under `_ctrodb_fts_format`. Search results stay complete across the
+upgrade.
+
+### Verification
+- `tests/integration/fts-index.test.ts` (15 tests, both adapters): concurrent
+  writes are all indexed, an insert performs **no** read of the posting store and
+  writes exactly one posting per token, update/delete move and remove postings,
+  multi-token queries require every token, collections stay separate, re-indexing
+  is idempotent, the no-index fallback still searches, and a format-1 store is
+  rebuilt on connect.
+- `tests/integration/bulk-delete.test.ts` (6 tests, both adapters): one bulk read
+  per `deleteMany` and zero per-id reads, unchanged delete events, and the
+  fallback for adapters without `findByIds`.
+- `npm run perf:guard` now fails if indexing 6,000 documents exceeds 900 ms;
+  it measured 257 ms with this change and 2,268 ms before it.
+- `npm run verify` — 629 tests / 39 files.
+
 ## [1.9.1] - 2026-10-21
 
 ### Added

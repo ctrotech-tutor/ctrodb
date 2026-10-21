@@ -170,6 +170,33 @@ function idbFindById(
   })
 }
 
+/** Several `get`s in one transaction: a bulk delete must not open N of them. */
+function idbFindByIds(
+  db: IDBDatabase,
+  collection: string,
+  ids: ID[],
+): Promise<(Record<string, unknown> | undefined)[]> {
+  if (!db.objectStoreNames.contains(collection)) return Promise.resolve(ids.map(() => undefined))
+  if (ids.length === 0) return Promise.resolve([])
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(collection, "readonly")
+    const store = tx.objectStore(collection)
+    const results: (Record<string, unknown> | undefined)[] = new Array(ids.length)
+    let remaining = ids.length
+
+    ids.forEach((id, position) => {
+      const request = store.get(id)
+      request.onsuccess = () => {
+        results[position] = request.result as Record<string, unknown> | undefined
+        remaining--
+        if (remaining === 0) resolve(results)
+      }
+      request.onerror = () => reject(request.error)
+    })
+  })
+}
+
 /** `store.count()` instead of materialising every row to read `.length`. */
 function idbCount(db: IDBDatabase, collection: string): Promise<number> {
   if (!db.objectStoreNames.contains(collection)) return Promise.resolve(0)
@@ -302,8 +329,21 @@ export class IndexedDBAdapter implements StorageAdapter {
     return idbFindAll(this.#getDb(), collection)
   }
 
+  async findByIds(collection: string, ids: ID[]): Promise<(Record<string, unknown> | undefined)[]> {
+    return idbFindByIds(this.#getDb(), collection, ids)
+  }
+
   async count(collection: string): Promise<number> {
     return idbCount(this.#getDb(), collection)
+  }
+
+  hasIndex(collection: string, indexName: string): boolean {
+    const db = this.#getDb()
+    if (!db.objectStoreNames.contains(collection)) return false
+    return db
+      .transaction(collection, "readonly")
+      .objectStore(collection)
+      .indexNames.contains(indexName)
   }
 
   async update(

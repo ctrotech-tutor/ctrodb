@@ -178,6 +178,14 @@ export interface StorageAdapter {
   setSchemaVersion(version: number): Promise<void>
   create(collection: string, data: unknown): Promise<unknown>
   findById(collection: string, id: ID): Promise<unknown>
+  /**
+   * Read several records in one operation.
+   *
+   * Optional, and additive: callers fall back to one `findById` per id. It
+   * exists because a bulk delete needs the previous records for its events, and
+   * N separate `findById` calls are N separate IndexedDB transactions.
+   */
+  findByIds?(collection: string, ids: ID[]): Promise<(unknown | undefined)[]>
   findAll(collection: string): Promise<unknown[]>
   /**
    * Number of rows in a collection.
@@ -188,6 +196,14 @@ export interface StorageAdapter {
    * supported and counted through `findAll()`.
    */
   count?(collection: string): Promise<number>
+  /**
+   * Whether `collection` has an index on `indexName`.
+   *
+   * Optional. Plugins use it to decide between an indexed lookup and a scan
+   * (the search index asks whether its posting store is queryable by token).
+   * Adapters that do not implement it are treated as "no index".
+   */
+  hasIndex?(collection: string, indexName: string): boolean
   update(collection: string, id: ID, changes: unknown): Promise<unknown>
   delete(collection: string, id: ID): Promise<void>
   deleteMany(collection: string, ids: ID[]): Promise<void>

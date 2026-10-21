@@ -89,7 +89,29 @@ export class MemoryAdapter implements StorageAdapter {
           }
         }
       }
+
+      // Plugin stores (e.g. the full-text posting store) are declared the same
+      // way, so an indexed lookup on one behaves like a collection lookup
+      // instead of silently scanning (IndexedDB already creates these indexes).
+      for (const entry of schema.pluginStoreNames ?? []) {
+        const storeName = typeof entry === "string" ? entry : entry.name
+        if (!this.#data.has(storeName)) this.#data.set(storeName, new Map())
+
+        const fields = (typeof entry === "string" ? [] : (entry.indexes ?? [])).map(
+          (index) => index.field,
+        )
+        if (fields.length > 0) {
+          this.#indexes.set(
+            storeName,
+            new Map(fields.map((field) => [field, new Map<string, Set<ID>>()])),
+          )
+        }
+      }
     }
+  }
+
+  hasIndex(collection: string, indexName: string): boolean {
+    return this.#indexes.get(collection)?.has(indexName) ?? false
   }
 
   async disconnect(): Promise<void> {
@@ -223,6 +245,15 @@ export class MemoryAdapter implements StorageAdapter {
     if (!store) return undefined
     const record = store.get(id)
     return record ? { ...record } : undefined
+  }
+
+  async findByIds(collection: string, ids: ID[]): Promise<(Record<string, unknown> | undefined)[]> {
+    const store = this.#data.get(collection)
+    if (!store) return ids.map(() => undefined)
+    return ids.map((id) => {
+      const record = store.get(id)
+      return record ? { ...record } : undefined
+    })
   }
 
   async findAll(collection: string): Promise<Record<string, unknown>[]> {
