@@ -45,4 +45,7 @@ jobs:
         name: Build
 
       - run: node scripts/verify-package.mjs
-        name: Verify package
+        name: Verify package artifacts
+
+      - run: npm run typecheck:smoke
+        name: Type-check consumer (published declarations)

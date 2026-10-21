@@ -25,6 +25,9 @@ const DEFAULT_INTERVAL_MS = 30000
 const DEFAULT_DEBOUNCE_MS = 500
 const DEFAULT_MAX_BACKOFF_MS = 300000
 const INITIAL_BACKOFF_MS = 1000
+/** Give up on a conflict the server refuses to accept after this many tries. */
+const MAX_CONFLICT_RETRIES = 3
+
 const MAX_PULL_PAGES = 1000
 const CIRCUIT_BREAKER_THRESHOLD = 50
 
@@ -364,31 +367,41 @@ export class SyncEngine {
     const resolution = await this.#resolver.resolve(conflict)
 
     switch (resolution.resolution) {
-      case "local":
-        await this.#tracker.markCommitted(conflict.changeId, {
-          serverTimestamp: conflict.remoteTimestamp,
-        })
+      case "local": {
+        // The local side wins, but the server has not accepted this change —
+        // it is the *reason* we are here. Marking it committed would drop it
+        // from the queue and leave the two sides permanently diverged
+        // (audit H-15). Retry the push, bounded so a server that keeps
+        // rejecting cannot spin forever.
+        const existing = await this.#tracker.getById(conflict.changeId)
+        const attempts = (existing?.retries ?? 0) + 1
+
+        if (attempts > MAX_CONFLICT_RETRIES) {
+          await this.#tracker.markFailed(
+            conflict.changeId,
+            `Conflict unresolved after ${MAX_CONFLICT_RETRIES} attempts; the server rejected this change`,
+          )
+          break
+        }
+
+        await this.#tracker.markPending(conflict.changeId, { retries: attempts })
         break
+      }
 
       case "remote": {
-        const adapter = this.#adapter
-        const remoteData = conflict.remote
-
-        const existing = await adapter.findById(conflict.collection, conflict.recordId)
-        if (existing && remoteData) {
-          await adapter.update(conflict.collection, conflict.recordId, {
-            ...remoteData,
-          } as Record<string, unknown>)
-        } else if (!existing && remoteData) {
-          await adapter.create(conflict.collection, {
-            id: conflict.recordId,
-            ...remoteData,
-          } as Record<string, unknown>)
-        } else {
-          if (existing) {
-            await adapter.delete(conflict.collection, conflict.recordId)
-          }
-        }
+        // Apply the winning remote state through Collection so validation,
+        // change events and plugin hooks behave exactly as for a pulled change.
+        await this.#applyRemoteChange(
+          {
+            id: `conflict:${conflict.changeId}`,
+            collection: conflict.collection,
+            recordId: conflict.recordId,
+            type: conflict.remote === null ? "delete" : "update",
+            data: conflict.remote,
+            timestamp: conflict.remoteTimestamp,
+          },
+          new Map(),
+        )
 
         await this.#tracker.markCommitted(conflict.changeId, {
           serverTimestamp: conflict.remoteTimestamp,
@@ -398,18 +411,17 @@ export class SyncEngine {
 
       case "merged": {
         if (resolution.merged) {
-          const adapter = this.#adapter
-          const existing = await adapter.findById(conflict.collection, conflict.recordId)
-          if (existing) {
-            await adapter.update(conflict.collection, conflict.recordId, {
-              ...resolution.merged,
-            } as Record<string, unknown>)
-          } else {
-            await adapter.create(conflict.collection, {
-              id: conflict.recordId,
-              ...resolution.merged,
-            } as Record<string, unknown>)
-          }
+          await this.#applyRemoteChange(
+            {
+              id: `conflict:${conflict.changeId}`,
+              collection: conflict.collection,
+              recordId: conflict.recordId,
+              type: "update",
+              data: resolution.merged,
+              timestamp: conflict.remoteTimestamp,
+            },
+            new Map(),
+          )
         }
 
         await this.#tracker.markCommitted(conflict.changeId, {

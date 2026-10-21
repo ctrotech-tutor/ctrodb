@@ -44,6 +44,9 @@ jobs:
       - name: Verify package contents
         run: node scripts/verify-package.mjs
 
+      - name: Type-check consumer (published declarations)
+        run: npm run typecheck:smoke
+
   create-release:
     name: Create GitHub Release
     needs: quality

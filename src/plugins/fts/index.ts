@@ -24,30 +24,30 @@ export function ftsPlugin(): CtroDBPlugin {
       }
     },
 
-    onAfterCreate(_collection: string, record: unknown) {
+    // These hooks are awaited by the write path. Returning the promise (rather
+    // than starting a floating async call) is what keeps an indexing failure
+    // observable instead of surfacing as an unhandledRejection.
+    async onAfterCreate(_collection: string, record: unknown) {
       const fields = searchableFieldsMap.get(_collection)
-      if (fields) {
-        indexer.indexRecord(_collection, record as Record<string, unknown>, fields)
-      }
+      if (!fields) return
+      await indexer.indexRecord(_collection, record as Record<string, unknown>, fields)
     },
 
-    onAfterUpdate(_collection: string, _id: ID, record: unknown, oldRecord?: unknown) {
+    async onAfterUpdate(_collection: string, _id: ID, record: unknown, oldRecord?: unknown) {
       const fields = searchableFieldsMap.get(_collection)
-      if (fields && oldRecord) {
-        indexer.updateRecord(
-          _collection,
-          oldRecord as Record<string, unknown>,
-          record as Record<string, unknown>,
-          fields,
-        )
-      }
+      if (!fields || !oldRecord) return
+      await indexer.updateRecord(
+        _collection,
+        oldRecord as Record<string, unknown>,
+        record as Record<string, unknown>,
+        fields,
+      )
     },
 
-    onAfterDelete(_collection: string, _id: ID, oldRecord?: unknown) {
+    async onAfterDelete(_collection: string, _id: ID, oldRecord?: unknown) {
       const fields = searchableFieldsMap.get(_collection)
-      if (fields && oldRecord) {
-        indexer.removeRecord(_collection, oldRecord as Record<string, unknown>, fields)
-      }
+      if (!fields || !oldRecord) return
+      await indexer.removeRecord(_collection, oldRecord as Record<string, unknown>, fields)
     },
   } as CtroDBPlugin
 }
