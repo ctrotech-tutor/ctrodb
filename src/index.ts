@@ -1,7 +1,7 @@
 export { createAdapter, IndexedDBAdapter, MemoryAdapter } from "./adapter/index"
 export { Collection } from "./collection"
 export type { DatabaseConfig } from "./database"
-export { Database } from "./database"
+export { createDatabase, Database } from "./database"
 export {
   CollectionNotFoundError,
   ConnectionError,
@@ -33,6 +33,18 @@ export {
 } from "./query/range"
 export { Signal } from "./reactive/signal"
 export { Schema } from "./schema"
+export type {
+  CollectionName,
+  DocumentOf,
+  FieldValue,
+  HasManyKeys,
+  InferRecord,
+  RelationShape,
+  RelationShapes,
+  RelationsOf,
+  ToOneKeys,
+} from "./schema-types"
+export { defineSchema } from "./schema-types"
 export type {
   ConflictResolution,
   ConflictResolverFn,

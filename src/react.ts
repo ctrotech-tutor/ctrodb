@@ -165,11 +165,7 @@ export function useQuery<T extends object>(
 }
 
 export function useDoc<T extends object>(collectionName: string, id: ID | undefined): DocResult<T> {
-  const { data, loading, error } = useQuery<T>(
-    collectionName,
-    (q) => q.where("id" as keyof T & string, "==", id),
-    [id],
-  )
+  const { data, loading, error } = useQuery<T>(collectionName, (q) => q.where("id", "==", id), [id])
   return { data: data[0], loading, error }
 }
 
