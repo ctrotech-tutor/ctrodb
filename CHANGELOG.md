@@ -1,5 +1,102 @@
 # Changelog
 
+All notable changes to ctrodb are documented in this file. Releases are
+published automatically from tags by `.github/workflows/publish.yml`.
+
+## [1.7.2] - 2026-10-21
+
+### Fixed
+- **Filter semantics are defined in one place (L-08).** The "does this record
+  match" predicate existed three times: in the executor (with `search`, and
+  `false` for an unrecognised operator) and in both adapters (without `search`,
+  and `true` — i.e. *match* — for an unrecognised operator). It now lives in
+  `src/query/predicate.ts`; an operator that cannot be evaluated never matches.
+- **Queue counts are correct after a failed sync (L-12).** `status.pendingChanges`
+  came from a cache that was only refreshed on success, so a failed push left the
+  UI reporting "0 pending" while changes were still waiting. Counts are refreshed
+  in `finally`.
+- **A cancelled request no longer marks the transport offline (L-14).** Any
+  error, including a caller's `AbortController`, set the HTTP transport to
+  disconnected. Cancellation is now distinguished from a transport failure, and
+  the merged timeout signal clears its timer and abort listener when the request
+  settles instead of leaking both.
+- **Storage exhaustion is a typed error (L-15).** IndexedDB `QuotaExceededError`
+  surfaced as a raw `DOMException` from inside the adapter. It is now
+  `StorageQuotaError` (exported), so applications can tell "out of space" apart
+  from a bug. The original error is kept as `cause`.
+- **`db.collection("_create")` no longer bypasses the connection check (L-09).**
+  A special case in `Database.collection` let one internal name skip the
+  "call `connect()` first" guard.
+
+### Changed
+- **Tests and scripts are linted (L-05).** Biome now covers `tests/` and
+  `scripts/` with a relaxed rule set for test code (no `!` or `any` rules), so
+  dead imports and unused bindings in tests are caught like everywhere else.
+- **React test noise removed (L-07).** Two tests let state updates escape `act`,
+  producing warnings that can mask real ordering problems.
+- **Stale audit document archived (L-10).** The pre-audit `ctrodb.md` report moved
+  to `docs/archive/` with a banner; two of its central claims are false and were
+  disproved by the Phase 1 audit.
+- **Bundle-size claim is measured (L-04).** README states the measured 53 KB
+  minified / 16 KB gzipped for the core and 8 KB / 3 KB for `ctrodb/react`.
+
+## [1.7.1] - 2026-10-21
+
+### Fixed
+- **Documented React API now compiles (M-19).** The README typed `useSync()` as
+  `() => Promise<void>` (it returns `{ sync, status }`), passed a `db` prop to
+  `SyncDevPanel` (it reads the database from context), called `useSyncQueue(db)`
+  with an argument the hook does not take, documented `error: null` where the
+  type is `Error | undefined`, and showed `post.author.first()` as the lazy
+  relation API — a property that does not exist on `Model<T>`. All corrected.
+- **Interfaces work as document types.** The generic constraint on
+  `db.collection<T>()`, `useQuery<T>()`, `useDoc<T>()`, `useMutation<T>()`,
+  `Collection<T>`, `QueryBuilder<T>` and `Model<T>` was `Record<string, unknown>`,
+  so a plain `interface Todo { id: string; text: string }` — the natural way to
+  type records — was rejected with "Index signature for type 'string' is
+  missing". The constraint is now `object`; existing code is unaffected.
+
+### Added
+- **The docs are type-checked.** `scripts/type-smoke/docs.tsx` compiles the
+  README's React, hooks, model and relation examples against the *built*
+  declarations in `npm run verify` and CI.
+- **`react` is a declared peer dependency** (`>=18`, optional), so package
+  managers can flag a missing or duplicated React.
+
+### CI
+- Node 22 and 24 are the tested matrix (Node 20 is end-of-life).
+- Coverage thresholds are enforced by `npm run test:coverage`.
+- `@arethetypeswrong/cli --pack` runs on every push and before publishing.
+
+## [1.7.0] - 2026-10-21
+
+### Changed
+- **Direct assignment on a model now throws (M-12).** `todo.text = "x"` used to
+  log a warning and return `true`, so the assignment looked successful while the
+  stored record kept the old value. It now raises `TypeError` and points at
+  `model.update({ text: "x" })`.
+- **Models are transparent to ordinary JavaScript (M-12).** Record fields are
+  own enumerable properties, so `{ ...todo }`, `Object.keys`, `Object.entries`,
+  `"field" in model`, `Object.hasOwn` and `JSON.stringify` all see the data.
+  Relation getters stay non-enumerable, so a spread yields exactly the fields.
+
+### Added
+- **`model.load(relation)` (M-13).** Relations could be read as a lazy
+  `QueryBuilder` or, after `.with()`, as resolved data — the same property with
+  two contracts. `load()` resolves relation *data*: an array for `has_many`, a
+  single record for `has_one`/`belongs_to`, and rejects unknown names.
+
+### Fixed
+- **Cross-tab broadcasts no longer trigger phantom syncs (M-09).** A local write
+  posted on a `BroadcastChannel` that the same tab's sync engine listened to, so
+  one write produced `push,push,pull` plus an extra network round-trip even with
+  `autoSync: false`. Messages now carry an origin id that receivers ignore, one
+  channel is shared per context, and `destroy()` releases it.
+- **`useQuery` cannot show stale data any more (M-16).** Responses are
+  sequenced, caller `deps` are compared instead of being spread into the effect's
+  dependency array (React threw when their length changed), change events are
+  coalesced over one frame, and background refreshes no longer flip `loading`.
+
 ## [1.6.0] - 2026-10-21
 
 ### Fixed
@@ -25,8 +122,6 @@
 - `query().search(field, text)` is a case-insensitive **substring** filter, not
   an FTS query. Documented explicitly so the behaviour is a contract, not an
   accident (M-15); a future release can route it through the FTS index.
-
-All notable changes to ctrodb will be documented in this file.
 
 ## [1.5.0] - 2026-10-21
 

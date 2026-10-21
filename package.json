@@ -1,6 +1,6 @@
 {
   "name": "ctrodb",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "A zero-dependency, reactive, client-side database with full-text search and relations. Schema-driven, type-safe, and a joy to use.",
   "type": "module",
   "main": "dist/index.cjs",
@@ -53,8 +53,8 @@
     "bench": "vitest bench",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --write src/",
+    "lint": "biome check src tests scripts",
+    "lint:fix": "biome check --write src tests scripts",
     "format": "biome format --write src/",
     "prepublishOnly": "npm run build && npm test",
     "verify": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run build && node scripts/verify-package.mjs && npm run typecheck:smoke && npm test",

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import http from "http"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Database, HttpTransport, syncPlugin } from "../../src/index"
 
 // ── In-memory server store ──
@@ -119,9 +119,7 @@ function createServer(): http.Server {
           batchSize?: number
         }
 
-        const cursorIndex = body.cursor
-          ? changeLog.findIndex((c) => c.id === body.cursor)
-          : -1
+        const cursorIndex = body.cursor ? changeLog.findIndex((c) => c.id === body.cursor) : -1
 
         const startIndex = cursorIndex >= 0 ? cursorIndex + 1 : 0
         const batchSize = Math.min(Math.max(1, body.batchSize ?? 100), 500)
@@ -131,9 +129,7 @@ function createServer(): http.Server {
           : raw
 
         const nextCursor =
-          filtered.length > 0
-            ? filtered[filtered.length - 1]!.id
-            : body.cursor ?? null
+          filtered.length > 0 ? filtered[filtered.length - 1]!.id : (body.cursor ?? null)
 
         res.writeHead(200)
         res.end(
@@ -269,10 +265,10 @@ describe("E2E — Two clients via HTTP", () => {
     await dbB.sync()
 
     // After conflict resolution, B should have the server version
-      const recordB = await todosB.get(recordId)
-      expect(recordB).toBeDefined()
-      // Title should reflect the winning version
-      expect(recordB!.title).toBeTruthy()
+    const recordB = await todosB.get(recordId)
+    expect(recordB).toBeDefined()
+    // Title should reflect the winning version
+    expect(recordB!.title).toBeTruthy()
 
     await dbA.disconnect()
     await dbB.disconnect()

@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { MemoryAdapter } from "../../src/adapter/memory"
-import { IndexedDBAdapter } from "../../src/adapter/idb"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createAdapter } from "../../src/adapter/create"
+import { IndexedDBAdapter } from "../../src/adapter/idb"
+import { MemoryAdapter } from "../../src/adapter/memory"
 import { Schema } from "../../src/schema"
 
-const testSchema = new Schema({
+const _testSchema = new Schema({
   version: 1,
   collections: {
     users: {
@@ -24,6 +24,7 @@ const testSchema = new Schema({
   },
 })
 
+// biome-ignore lint/correctness/noUnusedVariables: documents the row shape used below
 interface TestRecord {
   id: number | string
   name?: string
@@ -155,18 +156,18 @@ describe.each([
   })
 
   it("scans index with equality range", async () => {
-    const results = await adapter.scanIndex("users", "email", IDBKeyRange.only("alice@test.com"), [])
+    const results = await adapter.scanIndex(
+      "users",
+      "email",
+      IDBKeyRange.only("alice@test.com"),
+      [],
+    )
     expect(results).toHaveLength(1)
     expect(results[0].name).toBe("Alice")
   })
 
   it("scans index with lower bound range", async () => {
-    const results = await adapter.scanIndex(
-      "users",
-      "age",
-      IDBKeyRange.lowerBound(30),
-      [],
-    )
+    const results = await adapter.scanIndex("users", "age", IDBKeyRange.lowerBound(30), [])
     for (const r of results) {
       expect((r.age as number) >= 30).toBe(true)
     }

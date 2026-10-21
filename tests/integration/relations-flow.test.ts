@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { Database } from "../../src/database"
-import { Schema } from "../../src/schema"
 import { MemoryAdapter } from "../../src/adapter/memory"
+import { Database } from "../../src/database"
 import { relationsPlugin } from "../../src/plugins/relations/index"
+import { Schema } from "../../src/schema"
 
 describe("relations plugin integration", () => {
   it("creates authors and posts, then eager loads with .with()", async () => {

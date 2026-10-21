@@ -9,8 +9,8 @@
  * Run by `npm run build:verify` and by CI after `npm run build`.
  */
 import { Database } from "ctrodb"
-import { DatabaseProvider, useDatabase } from "ctrodb/react"
 import type { QueryResult } from "ctrodb/react"
+import { DatabaseProvider, useDatabase } from "ctrodb/react"
 
 const db: Database = new Database({
   name: "type-smoke",

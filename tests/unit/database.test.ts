@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Database } from "../../src/database"
 import { ConnectionError } from "../../src/errors"
 
@@ -155,7 +155,7 @@ describe("Database with schema", () => {
 
   it("validates required fields", async () => {
     const users = db.collection("users")
-    await expect(users.create({} as any)).rejects.toThrow('is required')
+    await expect(users.create({} as any)).rejects.toThrow("is required")
   })
 
   it("validates field types", async () => {

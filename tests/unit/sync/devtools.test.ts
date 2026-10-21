@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Database } from "../../../src/database"
 import { SYNC_STORE } from "../../../src/sync/change-tracker"
 import {
@@ -11,13 +11,13 @@ import {
 } from "../../../src/sync/devtools"
 import { syncPlugin } from "../../../src/sync/sync-plugin"
 import type {
+  PullOptions,
+  PushOptions,
   SyncChangeRecord,
   SyncPluginConfig,
   SyncPullResult,
   SyncPushResult,
   SyncTransport,
-  PushOptions,
-  PullOptions,
 } from "../../../src/sync/types"
 
 // ── Mock Transport ──
@@ -166,9 +166,7 @@ describe("DevTools", () => {
 
     it("throws if sync plugin is not registered", async () => {
       const db2 = new Database({ name: "test_no_sync", adapter: "memory" })
-      await expect(inspectSyncQueue(db2)).rejects.toThrow(
-        "Sync plugin not registered",
-      )
+      await expect(inspectSyncQueue(db2)).rejects.toThrow("Sync plugin not registered")
       await db2.disconnect()
     })
   })
@@ -198,7 +196,7 @@ describe("DevTools", () => {
 
   describe("retryFailedSync", () => {
     it("marks failed changes as pending and triggers sync", async () => {
-      const [id1, id2] = await seedChanges(db, [
+      const [_id1, _id2] = await seedChanges(db, [
         { type: "create", status: "failed" },
         { type: "create", status: "failed" },
       ])
@@ -214,9 +212,7 @@ describe("DevTools", () => {
     })
 
     it("returns 0 when no failed changes exist", async () => {
-      await seedChanges(db, [
-        { type: "create", status: "pending" },
-      ])
+      await seedChanges(db, [{ type: "create", status: "pending" }])
 
       const count = await retryFailedSync(db)
 
@@ -225,9 +221,7 @@ describe("DevTools", () => {
 
     it("throws if sync plugin is not registered", async () => {
       const db2 = new Database({ name: "test_no_sync", adapter: "memory" })
-      await expect(retryFailedSync(db2)).rejects.toThrow(
-        "Sync plugin not registered",
-      )
+      await expect(retryFailedSync(db2)).rejects.toThrow("Sync plugin not registered")
       await db2.disconnect()
     })
   })
@@ -342,9 +336,7 @@ describe("DevTools", () => {
 
     it("throws if sync plugin is not registered", async () => {
       const db2 = new Database({ name: "test_no_sync", adapter: "memory" })
-      await expect(compactSyncQueue(db2)).rejects.toThrow(
-        "Sync plugin not registered",
-      )
+      await expect(compactSyncQueue(db2)).rejects.toThrow("Sync plugin not registered")
       await db2.disconnect()
     })
   })

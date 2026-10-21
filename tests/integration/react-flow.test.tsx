@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it, afterAll, beforeAll, vi } from "vitest"
-import { renderHook, act, waitFor } from "@testing-library/react"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import React from "react"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { Database } from "../../src/database"
-import { useMutation, useQuery, DatabaseProvider } from "../../src/react"
+import { DatabaseProvider, useMutation, useQuery } from "../../src/react"
 
 interface Item {
   label: string
@@ -33,7 +33,9 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  try { await db.disconnect() } catch {}
+  try {
+    await db.disconnect()
+  } catch {}
 })
 
 describe("react integration", () => {
@@ -188,9 +190,12 @@ describe("useQuery robustness (M-16)", () => {
   })
 
   it("coalesces a burst of change events into a single refetch", async () => {
-    const { result } = renderHook(() => useQuery<Item>("items", (q) => q.where("label", "==", "burst")), {
-      wrapper,
-    })
+    const { result } = renderHook(
+      () => useQuery<Item>("items", (q) => q.where("label", "==", "burst")),
+      {
+        wrapper,
+      },
+    )
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const adapter = db._getAdapter()
@@ -212,9 +217,12 @@ describe("useQuery robustness (M-16)", () => {
   })
 
   it("does not flip loading back on for a background refresh", async () => {
-    const { result } = renderHook(() => useQuery<Item>("items", (q) => q.where("label", "==", "flicker")), {
-      wrapper,
-    })
+    const { result } = renderHook(
+      () => useQuery<Item>("items", (q) => q.where("label", "==", "flicker")),
+      {
+        wrapper,
+      },
+    )
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {

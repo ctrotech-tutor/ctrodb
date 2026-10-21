@@ -1,3 +1,5 @@
+import { StorageQuotaError } from "../errors"
+import { matchesWhere } from "../query/predicate"
 import type {
   ID,
   PluginStoreConfig,
@@ -235,26 +237,9 @@ function idbScanIndex(
       let results = request.result || []
 
       for (const cond of postFilters) {
+        // `search` is applied by the executor after the adapter returns.
         if (cond.type === "search") continue
-        results = results.filter((r) => {
-          const val = r[cond.field] as unknown
-          switch (cond.op) {
-            case "==":
-              return val === cond.value
-            case "!=":
-              return val !== cond.value
-            case ">":
-              return (val as number) > (cond.value as number)
-            case ">=":
-              return (val as number) >= (cond.value as number)
-            case "<":
-              return (val as number) < (cond.value as number)
-            case "<=":
-              return (val as number) <= (cond.value as number)
-            default:
-              return true
-          }
-        })
+        results = results.filter((r) => matchesWhere(r, cond))
       }
 
       resolve(results)
@@ -431,6 +416,7 @@ export class IndexedDBAdapter implements StorageAdapter {
 /** Turn an abort reason into an actionable message. */
 function transactionError(error: DOMException | null): Error {
   if (!error) return new Error("[ctrodb] Transaction was aborted")
+  if (isQuotaError(error)) return new StorageQuotaError(error.message)
   return new Error(`[ctrodb] Transaction aborted: ${error.name} — ${error.message}`, {
     cause: error,
   })
@@ -440,7 +426,12 @@ function transactionError(error: DOMException | null): Error {
  * Normalise the most common IDB trap: the transaction auto-committed because
  * the callback awaited something that is not a database request.
  */
+function isQuotaError(error: { name?: string } | null | undefined): boolean {
+  return error?.name === "QuotaExceededError"
+}
+
 function normalizeRequestError(error: DOMException | null): Error {
+  if (isQuotaError(error)) return new StorageQuotaError(error?.message)
   if (error?.name === "TransactionInactiveError") {
     return new Error(
       "[ctrodb] The transaction is no longer active. Do not await timers, fetch or other " +

@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { MemoryAdapter } from "../../src/adapter/memory"
 import { Database } from "../../src/database"
 import { ftsPlugin } from "../../src/plugins/fts/index"
 import { FTSIndexer } from "../../src/plugins/fts/indexer"
 import { tokenize } from "../../src/plugins/fts/tokenizer"
 import { relationsPlugin } from "../../src/plugins/relations/index"
-import { validationPlugin, ValidationEngine } from "../../src/plugins/validation/index"
 import type { ValidationRule } from "../../src/plugins/validation/index"
-import { MemoryAdapter } from "../../src/adapter/memory"
+import { ValidationEngine, validationPlugin } from "../../src/plugins/validation/index"
 
 function testDb(plugins?: any[]) {
   const db = new Database({
@@ -106,8 +106,15 @@ describe("FTSIndexer", () => {
 
     const indexer = new FTSIndexer(adapter)
 
-    await indexer.indexRecord("articles", { id: 1, title: "Hello World", body: "This is a test article" }, ["title", "body"])
-    await indexer.indexRecord("articles", { id: 2, title: "Goodbye World", body: "Another test" }, ["title", "body"])
+    await indexer.indexRecord(
+      "articles",
+      { id: 1, title: "Hello World", body: "This is a test article" },
+      ["title", "body"],
+    )
+    await indexer.indexRecord("articles", { id: 2, title: "Goodbye World", body: "Another test" }, [
+      "title",
+      "body",
+    ])
 
     const results = await indexer.search("articles", "hello")
     expect(results).toEqual([1])
@@ -125,8 +132,16 @@ describe("FTSIndexer", () => {
 
     const indexer = new FTSIndexer(adapter)
 
-    await indexer.indexRecord("articles", { id: 1, title: "Original Title", body: "" }, ["title", "body"])
-    await indexer.updateRecord("articles", { id: 1, title: "Original Title", body: "" }, { id: 1, title: "Updated Title", body: "" }, ["title", "body"])
+    await indexer.indexRecord("articles", { id: 1, title: "Original Title", body: "" }, [
+      "title",
+      "body",
+    ])
+    await indexer.updateRecord(
+      "articles",
+      { id: 1, title: "Original Title", body: "" },
+      { id: 1, title: "Updated Title", body: "" },
+      ["title", "body"],
+    )
 
     const resultsOriginal = await indexer.search("articles", "original")
     expect(resultsOriginal).toEqual([])
@@ -141,10 +156,16 @@ describe("FTSIndexer", () => {
 
     const indexer = new FTSIndexer(adapter)
 
-    await indexer.indexRecord("articles", { id: 1, title: "Delete Me", body: "" }, ["title", "body"])
+    await indexer.indexRecord("articles", { id: 1, title: "Delete Me", body: "" }, [
+      "title",
+      "body",
+    ])
     expect(await indexer.search("articles", "delete")).toEqual([1])
 
-    await indexer.removeRecord("articles", { id: 1, title: "Delete Me", body: "" }, ["title", "body"])
+    await indexer.removeRecord("articles", { id: 1, title: "Delete Me", body: "" }, [
+      "title",
+      "body",
+    ])
     expect(await indexer.search("articles", "delete")).toEqual([])
   })
 })
@@ -164,8 +185,11 @@ describe("FTS Plugin", () => {
   it("indexes articles on create and finds via search", async () => {
     const articles = db.collection("articles")
 
-    const a1 = await articles.create({ title: "JavaScript Guide", body: "Learn JavaScript programming" })
-    const a2 = await articles.create({ title: "TypeScript Handbook", body: "TypeScript is great" })
+    const a1 = await articles.create({
+      title: "JavaScript Guide",
+      body: "Learn JavaScript programming",
+    })
+    const _a2 = await articles.create({ title: "TypeScript Handbook", body: "TypeScript is great" })
 
     expect(a1.title).toBe("JavaScript Guide")
 
@@ -180,7 +204,7 @@ describe("FTS Plugin", () => {
     const updated = await articles.update(article.id, { title: "New Topic" })
     expect(updated.title).toBe("New Topic")
 
-    const oldSearch = await articles.query().search("title", "old").fetch()
+    const _oldSearch = await articles.query().search("title", "old").fetch()
     const newSearch = await articles.query().search("title", "new").fetch()
     expect(newSearch.length).toBeGreaterThanOrEqual(1)
   })
@@ -264,7 +288,7 @@ describe("Validation Plugin", () => {
     })
 
     expect(engine.validate("test", "name", "good", {})).toBeNull()
-    expect(engine.validate("test", "name", "bad", {})).toBe("Field \"name\" has bad value")
+    expect(engine.validate("test", "name", "bad", {})).toBe('Field "name" has bad value')
   })
 
   it("validates records with multiple rules", async () => {
@@ -272,7 +296,12 @@ describe("Validation Plugin", () => {
       validationPlugin([
         {
           name: "noAdminRole",
-          validate(_collection: string, _field: string, _value: unknown, data: Record<string, unknown>) {
+          validate(
+            _collection: string,
+            _field: string,
+            _value: unknown,
+            data: Record<string, unknown>,
+          ) {
             if (data.role === "admin") return "Admin role is not allowed"
             return null
           },
@@ -292,7 +321,11 @@ describe("Validation Plugin", () => {
     engine.addRule({
       name: "email",
       validate(_collection: string, field: string, value: unknown, _data: Record<string, unknown>) {
-        if (typeof value === "string" && value.includes("@") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        if (
+          typeof value === "string" &&
+          value.includes("@") &&
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+        ) {
           return `Field "${field}" is not a valid email address`
         }
         return null
@@ -515,13 +548,13 @@ describe("Plugin hooks integration", () => {
       plugins: [
         {
           name: "plugin-a",
-          onAfterCreate(collection: string) {
+          onAfterCreate(_collection: string) {
             calls.push("a")
           },
         },
         {
           name: "plugin-b",
-          onAfterCreate(collection: string) {
+          onAfterCreate(_collection: string) {
             calls.push("b")
           },
         },

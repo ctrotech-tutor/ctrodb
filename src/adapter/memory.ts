@@ -1,3 +1,4 @@
+import { matchesWhere } from "../query/predicate"
 import { queryRangeContains } from "../query/range"
 import type {
   ID,
@@ -13,7 +14,7 @@ export class MemoryAdapter implements StorageAdapter {
   readonly name = "memory"
 
   #data = new Map<string, Map<ID, Record<string, unknown>>>()
-  #counters = new Map<string, number>()
+
   #meta = new Map<string, unknown>()
   #connected = false
   /** Unique index fields per collection, mirroring what IndexedDB enforces. */
@@ -27,7 +28,6 @@ export class MemoryAdapter implements StorageAdapter {
       for (const [name, collectionSchema] of Object.entries(schema.collections)) {
         if (!this.#data.has(name)) {
           this.#data.set(name, new Map())
-          this.#counters.set(name, 1)
         }
         const unique = (collectionSchema.indexes ?? [])
           .filter((index) => index.unique)
@@ -39,7 +39,7 @@ export class MemoryAdapter implements StorageAdapter {
 
   async disconnect(): Promise<void> {
     this.#data.clear()
-    this.#counters.clear()
+
     this.#meta.clear()
     this.#uniqueIndexes.clear()
     this.#connected = false
@@ -92,8 +92,8 @@ export class MemoryAdapter implements StorageAdapter {
     }
 
     if (store.has(id)) {
-      // IndexedDB's `add()` throws ConstraintError here; overwriting would
-      // silently destroy the existing record (audit H-06).
+      // IndexedDB's `add()` rejects with ConstraintError here; overwriting
+      // would silently destroy the existing record (audit H-06).
       throw new Error(`Record "${id}" already exists in "${collection}"`)
     }
 
@@ -155,26 +155,9 @@ export class MemoryAdapter implements StorageAdapter {
     }
 
     for (const cond of postFilters) {
+      // `search` is applied by the executor after the adapter returns.
       if (cond.type === "search") continue
-      results = results.filter((r) => {
-        const val = r[cond.field] as unknown
-        switch (cond.op) {
-          case "==":
-            return val === cond.value
-          case "!=":
-            return val !== cond.value
-          case ">":
-            return (val as number) > (cond.value as number)
-          case ">=":
-            return (val as number) >= (cond.value as number)
-          case "<":
-            return (val as number) < (cond.value as number)
-          case "<=":
-            return (val as number) <= (cond.value as number)
-          default:
-            return true
-        }
-      })
+      results = results.filter((r) => matchesWhere(r, cond))
     }
 
     return results
@@ -226,7 +209,6 @@ export class MemoryAdapter implements StorageAdapter {
   #ensureCollection(name: string): void {
     if (!this.#data.has(name)) {
       this.#data.set(name, new Map())
-      this.#counters.set(name, 1)
     }
   }
 }

@@ -302,24 +302,33 @@ export class WsTransport implements SyncTransport {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingRequests.delete(requestId)
+        signal?.removeEventListener("abort", onAbort)
         reject(new Error(`Request timed out (${requestId})`))
       }, this.#config.requestTimeoutMs)
 
+      const onAbort = () => {
+        clearTimeout(timer)
+        this.#pendingRequests.delete(requestId)
+        reject(signal?.reason)
+      }
+
       const entry: PendingRequest = {
-        resolve: resolve as (value: unknown) => void,
-        reject,
+        resolve: (value: unknown) => {
+          // The listener used to stay attached to the caller's signal forever,
+          // so long-lived signals accumulated one per request (audit L-14).
+          signal?.removeEventListener("abort", onAbort)
+          resolve(value as T)
+        },
+        reject: (reason?: unknown) => {
+          signal?.removeEventListener("abort", onAbort)
+          reject(reason)
+        },
         timer,
       }
 
       this.#pendingRequests.set(requestId, entry)
 
       if (signal) {
-        const onAbort = () => {
-          clearTimeout(timer)
-          this.#pendingRequests.delete(requestId)
-          reject(signal.reason)
-        }
-
         signal.addEventListener("abort", onAbort, { once: true })
       }
     })

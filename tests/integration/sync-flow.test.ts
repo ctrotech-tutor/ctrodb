@@ -1,16 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Database } from "../../src/database"
 import { SYNC_STORE } from "../../src/sync/change-tracker"
 import { SyncEngine } from "../../src/sync/sync-engine"
 import { syncPlugin } from "../../src/sync/sync-plugin"
 import type {
+  PullOptions,
+  PushOptions,
   SyncChangeRecord,
   SyncPluginConfig,
   SyncPullResult,
   SyncPushResult,
   SyncTransport,
-  PushOptions,
-  PullOptions,
 } from "../../src/sync/types"
 
 // ── Mock Transport ──
@@ -47,10 +47,7 @@ class MockTransport implements SyncTransport {
 
 // ── Shared Helpers ──
 
-function createDb(
-  transport: SyncTransport,
-  config?: Partial<SyncPluginConfig>,
-): { db: Database } {
+function createDb(transport: SyncTransport, config?: Partial<SyncPluginConfig>): { db: Database } {
   const plugin = syncPlugin({
     transport,
     strategy: "lww",

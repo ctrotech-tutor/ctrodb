@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Database } from "../../../src/database"
-import { syncPlugin } from "../../../src/sync/sync-plugin"
-import { SyncEngine } from "../../../src/sync/sync-engine"
 import { SYNC_STORE } from "../../../src/sync/change-tracker"
+import { SyncEngine } from "../../../src/sync/sync-engine"
+import { syncPlugin } from "../../../src/sync/sync-plugin"
 import type {
+  PullOptions,
+  PushOptions,
   SyncChangeRecord,
   SyncEvent,
   SyncPluginConfig,
@@ -11,8 +13,6 @@ import type {
   SyncPushResult,
   SyncStatus,
   SyncTransport,
-  PushOptions,
-  PullOptions,
 } from "../../../src/sync/types"
 
 // ── Mock Transport ──
@@ -247,10 +247,7 @@ describe("syncPlugin", () => {
       const { db } = createDb(transport)
       await db.connect()
 
-      const spy = vi.spyOn(
-        (db.plugin("sync") as { _engine: SyncEngine })._engine,
-        "sync",
-      )
+      const spy = vi.spyOn((db.plugin("sync") as { _engine: SyncEngine })._engine, "sync")
 
       await db.sync()
 

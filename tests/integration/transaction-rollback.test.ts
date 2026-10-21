@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { MemoryAdapter } from "../../src/adapter/memory"
 import { Database } from "../../src/database"
 import { Schema } from "../../src/schema"
-import { MemoryAdapter } from "../../src/adapter/memory"
 
 const schema = new Schema({
   version: 1,

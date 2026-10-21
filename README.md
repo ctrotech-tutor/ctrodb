@@ -37,7 +37,7 @@
 
 | Category | Feature | Description |
 |---|---|---|
-| Core | Zero Dependencies | No runtime libraries. Core ~25 KB minified. |
+| Core | Zero Dependencies | No runtime libraries. Core 53 KB minified / **16 KB gzipped**; `ctrodb/react` adds 8 KB / 3 KB. |
 | | Schema Validation | Declarative schemas with type checking, defaults, required fields, format validation (email, URL, regex), min/max constraints. |
 | | Proxy Models | Transparent property access on query results. Call `.update()` and `.delete()` directly on models. |
 | | TypeScript Strict | Full generics, exhaustive type exports, strict mode throughout. |
