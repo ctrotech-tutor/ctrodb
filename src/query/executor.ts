@@ -1,7 +1,42 @@
 import type { ID, QueryCondition, QueryPlan, SortSpec, StorageAdapter } from "../types"
+import { compareQueryKeys } from "./range"
 
 export class QueryExecutor {
+  /**
+   * Execute a query plan.
+   *
+   * Ordering contract: without an explicit `orderBy`, results are returned in
+   * **primary-key ascending** order on every adapter. Before this, memory
+   * returned insertion order while IndexedDB returned key order, so
+   * `limit()` without `orderBy()` produced different pages depending on the
+   * backend (audit H-08).
+   */
   async execute<T extends Record<string, unknown>>(
+    adapter: StorageAdapter,
+    collectionName: string,
+    plan: QueryPlan,
+  ): Promise<T[]> {
+    const results = await this.#executePlan<T>(adapter, collectionName, plan)
+
+    return this.#applyWindow(results, plan)
+  }
+
+  /** Sort/offset/limit, applied once, at the top of the plan tree. */
+  #applyWindow<T extends Record<string, unknown>>(results: T[], plan: QueryPlan): T[] {
+    let windowed = plan.sort
+      ? this.#applySort(results, plan.sort)
+      : this.#applyDefaultOrder(results)
+
+    if (plan.offset) {
+      windowed = windowed.slice(plan.offset)
+    }
+    if (plan.limit !== undefined) {
+      windowed = windowed.slice(0, plan.limit)
+    }
+    return windowed
+  }
+
+  async #executePlan<T extends Record<string, unknown>>(
     adapter: StorageAdapter,
     collectionName: string,
     plan: QueryPlan,
@@ -51,16 +86,6 @@ export class QueryExecutor {
       }
     }
 
-    if (plan.sort) {
-      results = this.#applySort(results, plan.sort)
-    }
-    if (plan.offset) {
-      results = results.slice(plan.offset)
-    }
-    if (plan.limit !== undefined) {
-      results = results.slice(0, plan.limit)
-    }
-
     return results
   }
 
@@ -71,8 +96,11 @@ export class QueryExecutor {
   ): Promise<T[]> {
     const groups = plan.groups
     if (!groups) throw new Error("Query plan: OR query requires groups")
+    // Group plans carry no window of their own; sorting/limit are applied once
+    // to the merged result, otherwise an OR query silently ignored orderBy()
+    // and limit() entirely.
     const allResults = await Promise.all(
-      groups.map((groupPlan) => this.execute<T>(adapter, collectionName, groupPlan)),
+      groups.map((groupPlan) => this.#executePlan<T>(adapter, collectionName, groupPlan)),
     )
 
     const seen = new Set<ID>()
@@ -123,6 +151,33 @@ export class QueryExecutor {
         }
       }),
     )
+  }
+
+  /**
+   * Primary-key ascending, matching IndexedDB's natural key order.
+   *
+   * Already-ordered input (the common IndexedDB case) is returned as-is after a
+   * single linear check, so this costs O(n) rather than O(n log n) there.
+   */
+  #applyDefaultOrder<T extends Record<string, unknown>>(records: T[]): T[] {
+    let ordered = true
+    for (let i = 1; i < records.length; i++) {
+      const previous = records[i - 1]?.id as ID | undefined
+      const current = records[i]?.id as ID | undefined
+      if (previous === undefined || current === undefined) continue
+      if (compareQueryKeys(previous, current) > 0) {
+        ordered = false
+        break
+      }
+    }
+    if (ordered) return records
+
+    return [...records].sort((a, b) => {
+      const aId = a.id as ID | undefined
+      const bId = b.id as ID | undefined
+      if (aId === undefined || bId === undefined) return 0
+      return compareQueryKeys(aId, bId)
+    })
   }
 
   #applySort<T extends Record<string, unknown>>(records: T[], sort: SortSpec): T[] {

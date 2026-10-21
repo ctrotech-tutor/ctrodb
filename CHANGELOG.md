@@ -56,8 +56,24 @@ browser storage globals. Both changes were driven by the Phase 1 audit
   stays queued and is retried, and becomes an explicit `failed` entry after 3
   rejected attempts rather than diverging silently.
 
+- **`db.transaction()` is now actually atomic (H-03, H-04, H-05).** It
+  resolves only after the IndexedDB transaction has committed, and a callback
+  error aborts the transaction and propagates **unchanged** (previously
+  `tx.abort()` could throw `InvalidStateError` and mask it). The memory adapter
+  exposes the same scoped `ctx.collection()` API instead of returning the raw
+  adapter, and rolls back with a per-operation undo journal instead of a
+  whole-store snapshot — so a rollback no longer deletes unrelated writes that
+  happened while the transaction was in flight.
+- **Query results have a defined order (H-08).** Without an explicit `sort()`,
+  records come back in primary-key ascending order on every adapter, matching
+  IndexedDB. `limit()`/`offset()` therefore return the same window on memory and
+  IndexedDB. `orWhere()` queries now honour `sort()`, `offset()` and `limit()`,
+  which were previously dropped.
+
 ### Added
 - `QueryRange`, `QueryKey`, `WriteContext` and `WriteOrigin` public types.
+- `TransactionCollection` type: `TransactionContext.collection()` is properly
+  typed instead of returning `unknown`.
 - `createQueryRange`, `equalityRange`, `queryRangeContains`, `compareQueryKeys`
   and `isQueryKey` exported helpers for adapter authors.
 - Plugin hooks receive a trailing `context: { origin: "local" | "remote" }`
@@ -78,6 +94,13 @@ browser storage globals. Both changes were driven by the Phase 1 audit
   through the main entry point. Verified by a consumer type-check in CI.
 - `Collection.create()` with an id that already exists now rejects on both
   adapters. Previously the memory adapter silently overwrote the record.
+- `db.transaction()` is a *context* API: writes go through
+  `tx.collection(name)`. Writes made through `db.collection(...)` inside the
+  callback are no longer captured by the rollback on the memory adapter (they
+  never were on IndexedDB, so the two adapters now agree). See README
+  "Transactions".
+- Unordered queries on the memory adapter return primary-key order instead of
+  insertion order, matching IndexedDB.
 - `Collection.create/update/delete/deleteMany/put` accept an optional internal
   `WriteContext` argument. Public call signatures are unchanged.
 - `StorageAdapter.scanIndex` and `QueryPlan.range` are typed with `QueryRange`

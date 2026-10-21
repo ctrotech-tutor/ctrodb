@@ -5,6 +5,7 @@ import type {
   QueryRange,
   SchemaConfig,
   StorageAdapter,
+  TransactionCollection,
   TransactionContext,
 } from "../types"
 
@@ -339,19 +340,58 @@ export class IndexedDBAdapter implements StorageAdapter {
     return idbScanIndex(this.#getDb(), collection, indexName, range, postFilters)
   }
 
+  /**
+   * Run `fn` inside one IndexedDB transaction.
+   *
+   * Guarantees, now actually enforced (audit H-03):
+   *  - resolves only after the transaction has **committed** (`tx.oncomplete`);
+   *  - if `fn` throws, the transaction is aborted, no write is applied, and the
+   *    caller's original error propagates unchanged — previously `tx.abort()`
+   *    could itself throw `InvalidStateError`, masking the real cause;
+   *  - awaiting non-database async work (timers, network) inside `fn` lets the
+   *    transaction auto-commit, which used to surface as a confusing
+   *    `InvalidStateError` from deep inside the adapter.
+   */
   async transaction<T>(fn: (ctx: TransactionContext) => Promise<T>): Promise<T> {
     const db = this.#getDb()
     const storeNames = [...db.objectStoreNames]
     const tx = db.transaction(storeNames, "readwrite")
 
+    // Attach handlers before the first await: a fast transaction can complete
+    // while the callback is still running.
+    const completed = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(transactionError(tx.error))
+      tx.onerror = () => {
+        /* surfaced through onabort; keep the event from going unhandled */
+      }
+    })
+    // The completion promise is only awaited on the success path, so mark the
+    // rejection as handled up front to avoid unhandledRejection noise.
+    completed.catch(() => {})
+
+    const ctx = new IDBTransactionContext(db, tx)
+
+    let result: T
     try {
-      const ctx = new IDBTransactionContext(db, tx)
-      const result = await fn(ctx)
-      return result
+      result = await fn(ctx)
     } catch (error) {
-      tx.abort()
+      try {
+        tx.abort()
+      } catch {
+        // Already committed or aborted — the caller's error is the truth.
+      }
       throw error
     }
+
+    try {
+      await completed
+    } catch (error) {
+      // The callback resolved but the transaction did not commit.
+      throw error
+    }
+
+    return result
   }
 
   async getMetadata(key: string): Promise<unknown> {
@@ -391,6 +431,32 @@ export class IndexedDBAdapter implements StorageAdapter {
   }
 }
 
+/** Turn an abort reason into an actionable message. */
+function transactionError(error: DOMException | null): Error {
+  if (!error) return new Error("[ctrodb] Transaction was aborted")
+  return new Error(`[ctrodb] Transaction aborted: ${error.name} — ${error.message}`, {
+    cause: error,
+  })
+}
+
+/**
+ * Normalise the most common IDB trap: the transaction auto-committed because
+ * the callback awaited something that is not a database request.
+ */
+function normalizeRequestError(error: DOMException | null): Error {
+  if (error?.name === "TransactionInactiveError") {
+    return new Error(
+      "[ctrodb] The transaction is no longer active. Do not await timers, fetch or other " +
+        "non-database work inside db.transaction(); IndexedDB commits as soon as the " +
+        "transaction goes idle.",
+      { cause: error },
+    )
+  }
+  return error
+    ? new Error(error.message, { cause: error })
+    : new Error("[ctrodb] Unknown IndexedDB error")
+}
+
 class IDBTransactionContext implements TransactionContext {
   #db: IDBDatabase
   #tx: IDBTransaction
@@ -400,68 +466,86 @@ class IDBTransactionContext implements TransactionContext {
     this.#tx = tx
   }
 
-  collection(name: string): {
-    create(data: Record<string, unknown>): Promise<Record<string, unknown>>
-    findById(id: ID): Promise<Record<string, unknown> | undefined>
-    findAll(): Promise<Record<string, unknown>[]>
-    update(id: ID, changes: Record<string, unknown>): Promise<Record<string, unknown>>
-    delete(id: ID): Promise<void>
-  } {
+  collection(name: string): TransactionCollection {
     return createTransactionCollection(name, this.#db, this.#tx)
   }
 }
 
-function createTransactionCollection(collection: string, _db: IDBDatabase, tx: IDBTransaction) {
+function createTransactionCollection(
+  collection: string,
+  _db: IDBDatabase,
+  tx: IDBTransaction,
+): TransactionCollection {
+  /** Run an operation, converting sync IDB throws into a rejected promise. */
+  const guard = <T>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      return operation()
+    } catch (error) {
+      return Promise.reject(normalizeRequestError(error as DOMException | null))
+    }
+  }
+
   return {
     create(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-      return new Promise((resolve, reject) => {
-        const store = tx.objectStore(collection)
-        const request = store.add(data)
-        request.onsuccess = () => resolve({ id: request.result, ...data })
-        request.onerror = () => reject(request.error)
-      })
+      return guard(
+        () =>
+          new Promise((resolve, reject) => {
+            const request = tx.objectStore(collection).add(data)
+            request.onsuccess = () => resolve({ id: request.result, ...data })
+            request.onerror = () => reject(normalizeRequestError(request.error))
+          }),
+      )
     },
     findById(id: ID): Promise<Record<string, unknown> | undefined> {
-      return new Promise((resolve, reject) => {
-        const store = tx.objectStore(collection)
-        const request = store.get(id)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
+      return guard(
+        () =>
+          new Promise((resolve, reject) => {
+            const request = tx.objectStore(collection).get(id)
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(normalizeRequestError(request.error))
+          }),
+      )
     },
     findAll(): Promise<Record<string, unknown>[]> {
-      return new Promise((resolve, reject) => {
-        const store = tx.objectStore(collection)
-        const request = store.getAll()
-        request.onsuccess = () => resolve(request.result || [])
-        request.onerror = () => reject(request.error)
-      })
+      return guard(
+        () =>
+          new Promise((resolve, reject) => {
+            const request = tx.objectStore(collection).getAll()
+            request.onsuccess = () => resolve(request.result || [])
+            request.onerror = () => reject(normalizeRequestError(request.error))
+          }),
+      )
     },
     update(id: ID, changes: Record<string, unknown>): Promise<Record<string, unknown>> {
-      return new Promise((resolve, reject) => {
-        const store = tx.objectStore(collection)
-        const getRequest = store.get(id)
-        getRequest.onsuccess = () => {
-          const existing = getRequest.result
-          if (!existing) {
-            reject(new Error(`Record "${id}" not found in "${collection}"`))
-            return
-          }
-          const updated = { ...existing, ...changes }
-          const putRequest = store.put(updated)
-          putRequest.onsuccess = () => resolve(updated)
-          putRequest.onerror = () => reject(putRequest.error)
-        }
-        getRequest.onerror = () => reject(getRequest.error)
-      })
+      return guard(
+        () =>
+          new Promise((resolve, reject) => {
+            const store = tx.objectStore(collection)
+            const getRequest = store.get(id)
+            getRequest.onsuccess = () => {
+              const existing = getRequest.result
+              if (!existing) {
+                reject(new Error(`Record "${id}" not found in "${collection}"`))
+                return
+              }
+              const updated = { ...existing, ...changes }
+              const putRequest = store.put(updated)
+              putRequest.onsuccess = () => resolve(updated)
+              putRequest.onerror = () => reject(normalizeRequestError(putRequest.error))
+            }
+            getRequest.onerror = () => reject(normalizeRequestError(getRequest.error))
+          }),
+      )
     },
     delete(id: ID): Promise<void> {
-      return new Promise((resolve, reject) => {
-        const store = tx.objectStore(collection)
-        const request = store.delete(id)
-        request.onsuccess = () => resolve()
-        request.onerror = () => reject(request.error)
-      })
+      return guard(
+        () =>
+          new Promise((resolve, reject) => {
+            const request = tx.objectStore(collection).delete(id)
+            request.onsuccess = () => resolve()
+            request.onerror = () => reject(normalizeRequestError(request.error))
+          }),
+      )
     },
   }
 }
