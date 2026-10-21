@@ -50,7 +50,7 @@ jobs:
       - name: Benchmark native IndexedDB
         run: node scripts/browser-bench/run.mjs
         env:
-          BROWSER_BENCH_ROWS: ${{ inputs.rows || '500' }}
+          BROWSER_BENCH_ROWS: ${{ inputs.rows || '2000' }}
           BROWSER_BENCH_ROUNDS: ${{ inputs.rounds || '5' }}
           BROWSER_BENCH_OUT: ${{ runner.temp }}/ctrodb-indexeddb-benchmark.json
 
