@@ -179,6 +179,15 @@ export interface StorageAdapter {
   create(collection: string, data: unknown): Promise<unknown>
   findById(collection: string, id: ID): Promise<unknown>
   findAll(collection: string): Promise<unknown[]>
+  /**
+   * Number of rows in a collection.
+   *
+   * Optional: adapters that can answer this without materialising every row
+   * should implement it (`Collection.count()` then stops copying the whole
+   * collection just to read `.length`). Adapters that do not are still
+   * supported and counted through `findAll()`.
+   */
+  count?(collection: string): Promise<number>
   update(collection: string, id: ID, changes: unknown): Promise<unknown>
   delete(collection: string, id: ID): Promise<void>
   deleteMany(collection: string, ids: ID[]): Promise<void>

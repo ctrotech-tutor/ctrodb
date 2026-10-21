@@ -231,6 +231,11 @@ export class MemoryAdapter implements StorageAdapter {
     return [...store.values()].map((r) => ({ ...r }))
   }
 
+  /** O(1): the rows are already in a Map, so counting must not copy them. */
+  async count(collection: string): Promise<number> {
+    return this.#data.get(collection)?.size ?? 0
+  }
+
   async update(
     collection: string,
     id: ID,

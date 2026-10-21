@@ -3,6 +3,34 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.8.2] - 2026-10-21
+
+### Performance
+- **`count()` no longer materialises the collection.** `Collection.count()` went
+  through `findAll()`, which copies every record (`{ ...record }`) only to read
+  `.length`, and `QueryBuilder.count()` then wrapped each copy in a `Model`
+  Proxy and discarded it. On 10,000 rows, `count()` was **3,386 ops/s**.
+
+  `StorageAdapter` gained an **optional** `count(collection)` capability
+  (additive: adapters that do not implement it keep working through
+  `findAll()`). The memory adapter answers from `Map.size`, the IndexedDB
+  adapter uses `store.count()`, and an unfiltered query count delegates straight
+  to the collection. Measured on the same 10,000 rows:
+
+  | call | before | after |
+  |---|---|---|
+  | `collection.count()` | 3,386 ops/s | **4,357,036 ops/s** (~1,290x) |
+  | `query().count()` (unfiltered) | 3,386 ops/s | **2,992,612 ops/s** (~880x) |
+
+  Filtered counts still scan, but no longer construct models for rows they are
+  about to throw away: `tests/integration/count.test.ts` asserts `_toModels` is
+  never called.
+
+### Verification
+- `tests/integration/count.test.ts`: adapter fast path (no `findAll`), filtered
+  count, `limit`/`offset`/`sort` still respected, deletes, and an adapter
+  without `count()` falling back to the previous behaviour.
+
 ## [1.8.1] - 2026-10-21
 
 ### Fixed
