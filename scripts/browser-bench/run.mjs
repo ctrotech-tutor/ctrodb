@@ -89,6 +89,41 @@ try {
   )
   console.log(`Raw samples: ${outputPath}`)
 
+  // Keep compact per-case medians and round samples queryable through the
+  // GitHub Checks API, even where signed artifact/log downloads are unavailable.
+  if (process.env.GITHUB_ACTIONS === "true") {
+    for (const resultRow of result.results) {
+      const rowSamples = result.samples
+        .filter(
+          (sample) =>
+            sample.indexCount === resultRow.indexCount &&
+            sample.cardinality === resultRow.cardinality,
+        )
+        .map((sample) => ({
+          round: sample.round,
+          createSingleMs: sample.createSingleMs,
+          createBatchMs: sample.createBatchMs,
+          updateSingleFieldMs: sample.updateSingleFieldMs,
+          updateTransactionMs: sample.updateTransactionMs,
+          updateAllIndexedFieldsMs: sample.updateAllIndexedFieldsMs,
+        }))
+      const annotation = JSON.stringify({
+        browserVersion: result.metadata.browserVersion,
+        indexCount: resultRow.indexCount,
+        cardinality: resultRow.cardinality,
+        mediansMs: {
+          createSingle: resultRow.createSingleMs,
+          createBatch: resultRow.createBatchMs,
+          updateSingleField: resultRow.updateSingleFieldMs,
+          updateTransaction: resultRow.updateTransactionMs,
+          updateAllIndexedFields: resultRow.updateAllIndexedFieldsMs,
+        },
+        samples: rowSamples,
+      })
+      console.log(`::notice title=IndexedDB benchmark case::${annotation}`)
+    }
+  }
+
   if (process.env.GITHUB_STEP_SUMMARY) {
     const tableRows = result.results
       .map(
