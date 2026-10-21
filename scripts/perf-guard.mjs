@@ -21,6 +21,13 @@ const schema = {
     scanItems: {
       fields: { name: { type: "string" }, score: { type: "number" } },
     },
+    plainWrites: {
+      fields: { email: { type: "string" }, name: { type: "string" } },
+    },
+    uniqueWrites: {
+      fields: { email: { type: "string" }, name: { type: "string" } },
+      indexes: [{ field: "email", unique: true }],
+    },
   },
 }
 
@@ -69,6 +76,32 @@ const scanned = await time(
   100,
 )
 const counted = await time(() => items.count(), 500)
+
+// A unique index should be an O(1) membership lookup, not a scan of every row
+// for each create. The old memory path made 8k unique creates 24x slower than
+// ordinary creates by repeatedly traversing the entire collection.
+const plainWrites = db.collection("plainWrites")
+const uniqueWrites = db.collection("uniqueWrites")
+const UNIQUE_ROWS = 3_000
+for (let i = 0; i < 100; i++) {
+  await plainWrites.create({ id: `warm-${i}`, email: `warm-${i}@example.com`, name: "warm" })
+  await uniqueWrites.create({ id: `warm-${i}`, email: `warm-${i}@example.com`, name: "warm" })
+}
+const createLoop = async (collection, prefix) => {
+  for (let i = 0; i < UNIQUE_ROWS; i++) {
+    await collection.create({
+      id: `${prefix}-${i}`,
+      email: `${prefix}-${i}@example.com`,
+      name: "write guard",
+    })
+  }
+}
+const plainWriteStart = performance.now()
+await createLoop(plainWrites, "plain")
+const plainWriteMs = performance.now() - plainWriteStart
+const uniqueWriteStart = performance.now()
+await createLoop(uniqueWrites, "unique")
+const uniqueWriteMs = performance.now() - uniqueWriteStart
 
 // A selective range must seek into sorted index keys, not visit every distinct
 // key (the previous Map walk made even a one-row range as slow as a full scan).
@@ -153,6 +186,7 @@ await scanDb.disconnect()
 
 const ratio = scanned / indexed
 const rangeRatio = rangeScanned / rangeIndexed
+const uniqueWriteRatio = uniqueWriteMs / plainWriteMs
 const failures = []
 
 if (ratio < 3) {
@@ -163,6 +197,13 @@ if (ratio < 3) {
 }
 
 const matchRatio = matchScanned / matchIndexed
+if (uniqueWriteRatio > 5) {
+  failures.push(
+    `unique-index creates are ${uniqueWriteRatio.toFixed(1)}x slower than ordinary creates (expected <= 5x); ` +
+      "unique membership must use the index rather than rescanning all existing rows",
+  )
+}
+
 if (rangeRatio < 3) {
   failures.push(
     `selective indexed range is only ${rangeRatio.toFixed(1)}x faster than a scan (expected >= 3x); ` +
@@ -200,6 +241,9 @@ console.log(
 )
 console.log(`  full scan        : ${scanned.toFixed(4)} ms  (${ratio.toFixed(1)}x slower)`)
 console.log(`  count()          : ${counted.toFixed(4)} ms`)
+console.log(
+  `  unique creates   : ${uniqueWriteMs.toFixed(1)} ms unique | ${plainWriteMs.toFixed(1)} ms plain (${uniqueWriteRatio.toFixed(1)}x)`,
+)
 console.log(`  fts index ${FTS_ROWS} docs: ${ftsMs.toFixed(0)} ms`)
 console.log(
   `  match (1 hit)    : ${matchIndexed.toFixed(4)} ms indexed | ${matchScanned.toFixed(4)} ms scanned (${matchRatio.toFixed(0)}x)`,

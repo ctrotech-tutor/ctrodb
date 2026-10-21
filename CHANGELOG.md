@@ -3,6 +3,35 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.13.2] - 2026-10-21
+
+### Performance
+- **Unique-index checks in the memory adapter now use the index bucket.** A
+  single `create()` previously scanned every stored record for each unique field,
+  making N inserts quadratic. On an 8,000-row probe, a unique-indexed insert run
+  took **356 ms vs 15 ms** without the unique index (24x slower); after the
+  change, a repeat measured **24 ms vs 23 ms**. The CI perf guard's 3,000-row
+  comparison measured 14.2 ms unique vs 10.4 ms plain (1.4x), the residual being
+  index maintenance itself. Unindexable values retain the prior strict-equality
+  scan fallback.
+- **Memory-adapter updates visit only indexes on changed fields.** The prior path
+  iterated every declared index even for a one-field patch. A 30,000-row direct
+  adapter probe against eight indexes measured 57.3 ms after vs 64.1 ms before
+  (about 12% faster) when only one indexed field changed. Creates/deletes and
+  transaction rollback still maintain every affected index.
+- **Unique Date values compare by IndexedDB key value, not object identity.**
+  Single and batch memory-adapter unique checks now agree with IndexedDB for
+  distinct `Date` objects representing the same instant. `NaN` and invalid Dates
+  are not treated as valid index keys.
+
+### Verification
+- Existing duplicate-key tests still pass; added memory/IndexedDB tests for Date
+  uniqueness and atomic batch rejection.
+- `npm run perf:guard` now detects a return to the per-record full-store scan for
+  unique-indexed creates (budget: unique writes may cost at most 5x plain writes;
+  observed 1.4–2.5x across guard runs; latest 2.5x). A mutation restoring the
+  old scan measured 9.9x and correctly failed the guard.
+
 ## [1.13.1] - 2026-10-21
 
 ### Performance

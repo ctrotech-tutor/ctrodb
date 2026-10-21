@@ -17,8 +17,11 @@ import type {
  */
 function encodeIndexKey(value: unknown): string | null {
   if (typeof value === "string") return `s:${value}`
-  if (typeof value === "number") return `n:${value}`
-  if (value instanceof Date) return `d:${value.getTime()}`
+  if (typeof value === "number") return Number.isNaN(value) ? null : `n:${value}`
+  if (value instanceof Date) {
+    const timestamp = value.getTime()
+    return Number.isNaN(timestamp) ? null : `d:${timestamp}`
+  }
   return null
 }
 
@@ -32,6 +35,12 @@ function decodeIndexKey(key: string): QueryKey {
     default:
       return payload
   }
+}
+
+/** Canonical key for unique checks; dates compare by IndexedDB key value. */
+function uniqueValueKey(value: unknown): unknown {
+  const key = encodeIndexKey(value)
+  return key === null ? value : `indexed:${key}`
 }
 
 interface SortedIndexKey {
@@ -145,41 +154,64 @@ export class MemoryAdapter implements StorageAdapter {
     id: ID,
     previous: Record<string, unknown> | undefined,
     next: Record<string, unknown> | undefined,
+    changedFields?: Iterable<string>,
   ): void {
-    const fields = this.#indexes.get(collection)
-    if (!fields) return
+    const indexes = this.#indexes.get(collection)
+    if (!indexes) return
 
-    for (const [field, buckets] of fields) {
-      const before = previous?.[field]
-      const after = next?.[field]
+    if (changedFields) {
+      // `update()` knows exactly which properties changed. Look up those
+      // indexes directly rather than iterating every declared index. Most
+      // patches touch one field, even on collections with many indexes.
+      for (const field of changedFields) {
+        const buckets = indexes.get(field)
+        if (buckets) this.#applyIndexField(collection, id, field, buckets, previous, next)
+      }
+      return
+    }
 
-      if (before !== undefined && before !== after) {
-        const key = encodeIndexKey(before)
-        if (key === null) {
-          this.#adjustUnindexable(collection, field, -1)
-        } else {
-          const bucket = buckets.get(key)
-          bucket?.delete(id)
-          if (bucket?.size === 0) {
-            buckets.delete(key)
-            this.#invalidateSortedIndexKeys(collection, field)
-          }
+    for (const [field, buckets] of indexes) {
+      this.#applyIndexField(collection, id, field, buckets, previous, next)
+    }
+  }
+
+  #applyIndexField(
+    collection: string,
+    id: ID,
+    field: string,
+    buckets: Map<string, Set<ID>>,
+    previous: Record<string, unknown> | undefined,
+    next: Record<string, unknown> | undefined,
+  ): void {
+    const before = previous?.[field]
+    const after = next?.[field]
+
+    if (before !== undefined && before !== after) {
+      const key = encodeIndexKey(before)
+      if (key === null) {
+        this.#adjustUnindexable(collection, field, -1)
+      } else {
+        const bucket = buckets.get(key)
+        bucket?.delete(id)
+        if (bucket?.size === 0) {
+          buckets.delete(key)
+          this.#invalidateSortedIndexKeys(collection, field)
         }
       }
+    }
 
-      if (after !== undefined && after !== before) {
-        const key = encodeIndexKey(after)
-        if (key === null) {
-          this.#adjustUnindexable(collection, field, 1)
-        } else {
-          let bucket = buckets.get(key)
-          if (!bucket) {
-            bucket = new Set()
-            buckets.set(key, bucket)
-            this.#invalidateSortedIndexKeys(collection, field)
-          }
-          bucket.add(id)
+    if (after !== undefined && after !== before) {
+      const key = encodeIndexKey(after)
+      if (key === null) {
+        this.#adjustUnindexable(collection, field, 1)
+      } else {
+        let bucket = buckets.get(key)
+        if (!bucket) {
+          bucket = new Set()
+          buckets.set(key, bucket)
+          this.#invalidateSortedIndexKeys(collection, field)
         }
+        bucket.add(id)
       }
     }
   }
@@ -264,6 +296,26 @@ export class MemoryAdapter implements StorageAdapter {
       const value = candidate[field]
       if (value === undefined || value === null) continue
 
+      const key = encodeIndexKey(value)
+      const buckets = this.#indexes.get(collection)?.get(field)
+      if (key !== null && buckets) {
+        // The unique index already maintains exactly the lookup needed here.
+        // Re-scanning `store` for every create made N unique inserts O(N²).
+        const existingIds = buckets.get(key)
+        if (existingIds) {
+          for (const existingId of existingIds) {
+            if (ignoreId !== undefined && String(existingId) === String(ignoreId)) continue
+            throw new Error(
+              `Unique constraint failed on "${collection}.${field}": value ${JSON.stringify(value)} already exists`,
+            )
+          }
+        }
+        continue
+      }
+
+      // Preserve the previous behavior for values that are not valid index keys
+      // (boolean/object/array/NaN/invalid Date); IDB cannot index these, but the
+      // memory adapter historically still enforced strict-equality uniqueness.
       for (const [id, record] of store) {
         if (ignoreId !== undefined && String(id) === String(ignoreId)) continue
         if (record[field] === value) {
@@ -343,17 +395,18 @@ export class MemoryAdapter implements StorageAdapter {
         const taken = new Set<unknown>()
         for (const record of store.values()) {
           const value = record[field]
-          if (value !== undefined && value !== null) taken.add(value)
+          if (value !== undefined && value !== null) taken.add(uniqueValueKey(value))
         }
         for (const record of prepared) {
           const value = record[field]
           if (value === undefined || value === null) continue
-          if (taken.has(value)) {
+          const key = uniqueValueKey(value)
+          if (taken.has(key)) {
             throw new Error(
               `Unique constraint failed on "${collection}.${field}": value ${JSON.stringify(value)} already exists`,
             )
           }
-          taken.add(value)
+          taken.add(key)
         }
       }
     }
@@ -406,7 +459,7 @@ export class MemoryAdapter implements StorageAdapter {
     const updated = { ...record, ...changes }
     this.#assertUnique(collection, updated, id)
     store.set(id, updated)
-    this.#applyIndexes(collection, id, record, updated)
+    this.#applyIndexes(collection, id, record, updated, Object.keys(changes))
     return { ...updated }
   }
 

@@ -232,6 +232,20 @@ describe.each(["memory", "indexeddb"] as const)("createMany atomicity (%s)", (ad
     expect(await collection.count()).toBe(0)
   })
 
+  it("compares Date unique keys by value rather than object identity", async () => {
+    const db = await makeDb(adapterName)
+    const adapter = db._getAdapter()
+
+    await expect(
+      adapter.createMany("docs", [
+        { id: "date-a", title: "a", slug: new Date(0) },
+        { id: "date-b", title: "b", slug: new Date(0) },
+      ]),
+    ).rejects.toThrow()
+
+    expect(await docs(db).count()).toBe(0)
+  })
+
   it("writes nothing when a unique field collides with an existing row", async () => {
     const db = await makeDb(adapterName)
     const collection = docs(db)

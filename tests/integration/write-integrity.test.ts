@@ -91,6 +91,25 @@ describe.each([
 
     expect(await users.get("u2")).toBeUndefined()
   })
+
+  it("uses IndexedDB value equality for Date keys on unique indexes", async () => {
+    const db = await makeDb({
+      adapter,
+      schema: {
+        version: 1,
+        collections: {
+          dates: {
+            fields: { at: { type: "string" } },
+            indexes: [{ field: "at", unique: true }],
+          },
+        },
+      },
+    })
+    const storage = db._getAdapter()
+
+    await storage.create("dates", { id: "a", at: new Date(0) })
+    await expect(storage.create("dates", { id: "b", at: new Date(0) })).rejects.toThrow()
+  })
 })
 
 describe("after hooks never corrupt a committed write (H-09)", () => {
