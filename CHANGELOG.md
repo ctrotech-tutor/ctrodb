@@ -3,6 +3,81 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.8.1] - 2026-10-21
+
+### Fixed
+- **Indexes on the memory adapter now do something.** `scanIndex()` ignored the
+  adapter's index structures: it copied the whole collection with `findAll()`
+  and filtered it, so a query the planner had routed through an index cost
+  *more* than a plain scan. Measured with the repo's benchmark on 10,000 rows:
+
+  | query | before | after |
+  |---|---|---|
+  | `where("score", "==", 42)` | 1,646 ops/s | **21,371 ops/s** (~13x) |
+  | `where("score", ">=", 90)` | 930 ops/s | **1,352 ops/s** (~1.5x) |
+
+  On a 20,000-row collection a selective equality lookup went from 1.47 ms to
+  0.008 ms (~190x) because it no longer copies the collection first.
+
+  The adapter now keeps real buckets (field -> encoded key -> ids), maintained on
+  `create`, `update`, `delete`, `deleteMany` and transaction rollback, and walks
+  distinct keys for range queries instead of records. Values that are not valid
+  IndexedDB keys (boolean, `null`, object, array) in an indexed field switch that
+  field back to a scan, so rows can never disappear from a result set.
+
+  Writes pay for the maintenance: +12% on a 20,000-row insert with two indexes
+  (211 ms -> 236 ms in the same measurement). That is the expected trade for
+  turning indexed reads from a regression into a win.
+
+### Verification
+- `tests/integration/memory-index.test.ts` covers equality and range results
+  against a full scan, bucket moves on update, deletes, `deleteMany`,
+  transaction rollback, and the non-indexable fallback.
+- One test asserts the behaviour directly: an indexed equality query makes
+  **no** `findAll()` call, and the same query on an unindexed field does.
+
+## [1.8.0] - 2026-10-21
+
+Types are now derived from the schema (M-14).
+
+### Added
+- **`defineSchema()`** - validates a schema when it is declared (unknown field
+  types, indexes or relations pointing at missing fields) and preserves its
+  literal field types so the rest of the API can derive from it.
+- **`createDatabase()`** - returns a `Database` whose `collection()` is typed
+  from the schema, so there are no hand-written document interfaces any more:
+  `db.collection("todos")` is `Collection<{ id: ID; text: string; done?: boolean }>`.
+- **Typed queries.** `where()` requires a declared field and a value matching
+  that field's type, and accepts only the documented operators; `sort()` takes
+  declared field names; `search()` accepts string fields only, because searching
+  a number or boolean can never match.
+- **Typed relations.** `post.load("author")` is `Author | undefined`,
+  `author.load("posts")` is `Post[]`, and a name that is not a relation of that
+  collection is a compile error.
+- **Exported type helpers**: `DocumentOf`, `InferRecord`, `RelationsOf`,
+  `CollectionName`, `FieldValue`, `HasManyKeys`, `ToOneKeys`, `RelationShapes`.
+
+### Field typing rules
+- `required: true` -> required on the document and in `create()`.
+- everything else -> optional (`T | undefined`), including fields with a
+  `default`: the default is applied on write, but rows written before it existed
+  (or arriving through sync) may not carry the field.
+- `array` fields use their `items` definition when present.
+
+### Notes
+- `new Database({ schema })` keeps its previous untyped behaviour, so existing
+  code is unchanged.
+- Collection *names* are not compile-checked on `createDatabase()` results: a
+  type-level guarantee there would make the typed database invariant and stop it
+  being assignable to `Database`. An undeclared name still throws
+  `CollectionNotFoundError` at runtime.
+
+### Verification
+`scripts/type-smoke/schema-types.ts` compiles the documented usage against the
+**built** declarations (every rejected case is a `@ts-expect-error`, so a type
+regression fails the build), and `tests/integration/schema-types.test.ts` checks
+the runtime behaviour those types describe.
+
 ## [1.7.2] - 2026-10-21
 
 ### Fixed
