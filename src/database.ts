@@ -1,6 +1,6 @@
 import { createAdapter } from "./adapter/create"
 import { Collection } from "./collection"
-import { ConnectionError } from "./errors"
+import { CollectionNotFoundError, ConnectionError } from "./errors"
 import { QueryExecutor } from "./query/executor"
 import { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
@@ -126,6 +126,13 @@ export class Database {
   ): Collection<T> {
     if (!this.#connected && name !== "_create") {
       throw new ConnectionError(this.name)
+    }
+
+    // A collection that is not declared in the schema cannot be validated,
+    // indexed or migrated, yet it used to be created silently and accepted
+    // unvalidated writes (audit M-05). Fail loudly with the available names.
+    if (this.#schema && !this.#schema.collections[name] && !name.startsWith("_")) {
+      throw new CollectionNotFoundError(name, Object.keys(this.#schema.collections))
     }
 
     let col = this.#collections.get(name) as Collection<T> | undefined

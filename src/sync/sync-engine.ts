@@ -57,6 +57,7 @@ export class SyncEngine {
   readonly #db: Database
 
   #broadcastChannel: BroadcastChannel | null = null
+  #unsubscribeServerPush: (() => void) | null = null
   #handleOnline: (() => void) | null = null
   #handleOffline: (() => void) | null = null
 
@@ -144,6 +145,22 @@ export class SyncEngine {
       this.#broadcastChannel = null
     }
 
+    // ── Real-time server pushes ──
+    // WsTransport exposes onServerPush but nothing used it, so pushes from the
+    // server were only picked up on the next scheduled pull (audit M-11).
+    const pushCapable = this.#transport as unknown as {
+      onServerPush?: (callback: () => void) => () => void
+    }
+    if (typeof pushCapable.onServerPush === "function") {
+      try {
+        this.#unsubscribeServerPush = pushCapable.onServerPush(() => {
+          this.triggerSync()
+        })
+      } catch (error) {
+        console.warn("[ctrodb] Could not subscribe to server pushes:", error)
+      }
+    }
+
     // ── Online/offline detection ──
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
       this.#handleOnline = () => this.setConnected(true)
@@ -159,6 +176,8 @@ export class SyncEngine {
 
   async destroy(): Promise<void> {
     this.#stopAutoSync()
+    this.#unsubscribeServerPush?.()
+    this.#unsubscribeServerPush = null
     this.#cancelBackoff()
     this.#clearDebounce()
 
@@ -304,8 +323,13 @@ export class SyncEngine {
     // visible through inspectSyncQueue().failed and can be retried manually).
     // Before this, the option was accepted by the config type but never read.
     const maxAttempts = this.#config.retryMaxAttempts
+    const collections = this.#config.collections
     const pending = (await this.#tracker.getPending()).filter(
-      (change) => change.status !== "failed" || (change.retries ?? 0) < maxAttempts,
+      (change) =>
+        (change.status !== "failed" || (change.retries ?? 0) < maxAttempts) &&
+        // The collections filter used to apply to pull only, so a plugin
+        // configured for a subset still pushed everything (audit M-08).
+        (collections.length === 0 || collections.includes(change.collection)),
     )
 
     if (pending.length === 0) {
