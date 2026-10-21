@@ -7,6 +7,7 @@ import { Signal } from "./reactive/signal"
 import { Schema } from "./schema"
 import type { CollectionName, DocumentOf, RelationsOf } from "./schema-types"
 import type { SyncEvent, SyncStatus } from "./sync/types"
+import { TransactionPipeline } from "./transaction-context"
 import type {
   ChangeEvent,
   CtroDBPlugin,
@@ -16,6 +17,7 @@ import type {
   StorageAdapter,
   TransactionContext,
 } from "./types"
+import { LOCAL_WRITE } from "./write-context"
 
 export interface DatabaseConfig<S extends SchemaConfig | undefined = SchemaConfig | undefined> {
   name?: string
@@ -163,9 +165,37 @@ export class Database {
     return col as Collection<T>
   }
 
+  /**
+   * Run several writes atomically.
+   *
+   * The context behaves like the `Collection` API: schema defaults and
+   * validation apply, plugin hooks run, and every committed write emits a
+   * change event. Hooks and events are dispatched **after** the commit, so a
+   * transaction that throws leaves neither an index entry nor an event behind.
+   */
   async transaction<T>(fn: (ctx: TransactionContext) => Promise<T>): Promise<T> {
     this.#ensureConnected()
-    return this.#adapter.transaction(fn)
+
+    let pipeline: TransactionPipeline | undefined
+    const result = await this.#adapter.transaction((ctx) => {
+      pipeline = new TransactionPipeline(ctx, {
+        schema: this.#schema,
+        plugins: this.#plugins,
+        emit: (event) => this._emit(event),
+        initializeCollection: (name) => {
+          // The transaction context bypasses `Database.collection()`, but plugins
+          // (notably FTS) rely on its onCollectionInit registration.
+          this.collection(name)
+        },
+        context: LOCAL_WRITE,
+      })
+      return fn(pipeline)
+    })
+
+    // Only reached on commit: `adapter.transaction` rethrows (after rolling
+    // back) when the callback throws.
+    await pipeline?.flush()
+    return result
   }
 
   on(callback: (event: ChangeEvent) => void): () => void {
