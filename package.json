@@ -60,7 +60,8 @@
     "prepublishOnly": "npm run build && npm test",
     "verify": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run build && node scripts/verify-package.mjs && npm run typecheck:smoke && npm test",
     "typecheck:smoke": "tsc -p scripts/type-smoke/tsconfig.json",
-    "perf:guard": "node scripts/perf-guard.mjs"
+    "perf:guard": "node scripts/perf-guard.mjs",
+    "bench:browser": "npm run build && node scripts/browser-bench/run.mjs"
   },
   "keywords": [
     "ctrodb",
@@ -96,6 +97,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^26.1.0",
+    "playwright": "^1.64.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tsup": "^8.5.1",

@@ -1,0 +1,49 @@
+name: Browser write benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      rows:
+        description: "Records per workload case"
+        required: false
+        default: "500"
+      rounds:
+        description: "Independent rounds per case (median is reported)"
+        required: false
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  indexeddb:
+    name: Native IndexedDB (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Benchmark native IndexedDB
+        run: node scripts/browser-bench/run.mjs
+        env:
+          BROWSER_BENCH_ROWS: ${{ inputs.rows }}
+          BROWSER_BENCH_ROUNDS: ${{ inputs.rounds }}
+          BROWSER_BENCH_OUT: ${{ runner.temp }}/ctrodb-indexeddb-benchmark.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ctrodb-indexeddb-benchmark
+          path: ${{ runner.temp }}/ctrodb-indexeddb-benchmark.json
+          if-no-files-found: error
+          retention-days: 30
