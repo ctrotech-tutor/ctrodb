@@ -379,6 +379,20 @@ const ids = await indexer.search("articles", "typescript database")
 
 Features: tokenization, stop-word removal, case-insensitive, multi-field, automatic index updates on create/update/delete.
 
+The index stores **one record per (collection, token, document)** posting, so a
+write costs one independent insert per token, a delete costs one delete per
+token, and neither has to read the index first. That matters at scale and under
+concurrency: the previous layout kept a `docIds` array per token and rewrote it
+on every write, which was quadratic (8,000 documents took 4.0 s instead of
+0.26 s) and lost entries when writes overlapped (50 concurrent `create()` calls
+left 1 of 50 documents indexed).
+
+The plugin declares a `token` index on its store, which `FTSIndexer.search()`
+uses for a single index scan per query token. Construct an `FTSIndexer`
+directly over an adapter connected without a schema and it falls back to
+reading the posting store — same results, slower. Indexes from an earlier
+format are detected and rebuilt once at `connect()`.
+
 ### Relations Plugin
 
 Define relationships in your schema and load them eagerly or lazily.

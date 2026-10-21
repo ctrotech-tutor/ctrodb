@@ -7,7 +7,7 @@
  * loose — they are ratios and floors, not benchmarks, so a shared CI runner
  * cannot flake them, but a return of that class of regression fails the build.
  */
-import { Database } from "../dist/index.mjs"
+import { Database, ftsPlugin } from "../dist/index.mjs"
 
 const ROWS = 5_000
 
@@ -66,6 +66,38 @@ const counted = await time(() => items.count(), 500)
 
 await db.disconnect()
 
+// Full-text indexing must stay linear in the number of documents. The old
+// posting-array layout made it quadratic: 8,000 documents took ~4 s. At 6,000
+// documents the current implementation needs ~0.2 s, while the old layout needed
+// ~2.2 s, so the budget catches a return to quadratic behaviour while leaving
+// room for a slow, shared CI runner.
+const ftsDb = new Database({
+  name: `perf-guard-fts-${Math.random()}`,
+  adapter: "memory",
+  schema: {
+    version: 1,
+    collections: {
+      docs: {
+        fields: { title: { type: "string" }, body: { type: "string" } },
+        searchable: ["title", "body"],
+      },
+    },
+  },
+  plugins: [ftsPlugin()],
+})
+await ftsDb.connect()
+
+const FTS_ROWS = 6_000
+const ftsStart = performance.now()
+for (let i = 0; i < FTS_ROWS; i++) {
+  await ftsDb.collection("docs").create({
+    title: `title ${i}`,
+    body: `the quick brown fox jumps over the lazy dog number ${i}`,
+  })
+}
+const ftsMs = performance.now() - ftsStart
+await ftsDb.disconnect()
+
 const ratio = scanned / indexed
 const failures = []
 
@@ -83,10 +115,20 @@ if (counted > 0.1) {
   )
 }
 
+const FTS_BUDGET_MS = 900
+
+if (ftsMs > FTS_BUDGET_MS) {
+  failures.push(
+    `indexing ${FTS_ROWS} documents took ${ftsMs.toFixed(0)} ms (budget ${FTS_BUDGET_MS} ms); ` +
+      "index maintenance must stay linear in the number of documents",
+  )
+}
+
 console.log(`rows: ${ROWS}`)
 console.log(`  indexed equality : ${indexed.toFixed(4)} ms`)
 console.log(`  full scan        : ${scanned.toFixed(4)} ms  (${ratio.toFixed(1)}x slower)`)
 console.log(`  count()          : ${counted.toFixed(4)} ms`)
+console.log(`  fts index ${FTS_ROWS} docs: ${ftsMs.toFixed(0)} ms`)
 
 if (failures.length > 0) {
   console.error("\nPerformance guard failed:")

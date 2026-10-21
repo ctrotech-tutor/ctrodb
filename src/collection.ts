@@ -205,9 +205,18 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   }
 
   async deleteMany(ids: ID[], context: WriteContext = LOCAL_WRITE): Promise<void> {
+    // One bulk read instead of N sequential ones: on IndexedDB each `findById`
+    // is its own transaction, so a 1,000-id delete used to open 1,000 of them
+    // just to collect the `oldRecord` its events report.
     const existingMap = new Map<ID, T>()
-    for (const id of ids) {
-      const record = (await this.#adapter.findById(this.name, id)) as T | undefined
+    const previous = this.#adapter.findByIds
+      ? ((await this.#adapter.findByIds(this.name, ids)) as (T | undefined)[])
+      : await Promise.all(
+          ids.map((id) => this.#adapter.findById(this.name, id) as Promise<T | undefined>),
+        )
+
+    for (const [index, id] of ids.entries()) {
+      const record = previous[index]
       if (record) existingMap.set(id, record)
       await runHook(this.#plugins, "onBeforeDelete", this.name, id, context)
     }
