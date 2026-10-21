@@ -1,5 +1,4 @@
 import type { Database } from "../database"
-import type { StorageAdapter } from "../types"
 import { ChangeTracker, SYNC_STORE } from "./change-tracker"
 import type {
   SyncChangeRecord,
@@ -45,21 +44,13 @@ export function createSyncEventLog(
 export async function inspectSyncQueue(db: Database): Promise<SyncQueueSnapshot> {
   assertSyncEngine(db)
 
-  const adapter: StorageAdapter = db._getAdapter()
+  const tracker = new ChangeTracker(db._getAdapter())
 
   const [pending, syncing, committed, failed] = await Promise.all([
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<
-      SyncChangeRecord[]
-    >,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("syncing"), []) as Promise<
-      SyncChangeRecord[]
-    >,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("committed"), []) as Promise<
-      SyncChangeRecord[]
-    >,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<
-      SyncChangeRecord[]
-    >,
+    tracker.byStatus("pending"),
+    tracker.byStatus("syncing"),
+    tracker.byStatus("committed"),
+    tracker.byStatus("failed"),
   ])
 
   const stats: SyncQueueStats = {
@@ -104,14 +95,11 @@ export async function getSyncStats(db: Database): Promise<SyncQueueStats> {
 export async function compactSyncQueue(db: Database): Promise<number> {
   assertSyncEngine(db)
 
-  const adapter: StorageAdapter = db._getAdapter()
+  const adapter = db._getAdapter()
+  const tracker = new ChangeTracker(adapter)
   const [pendingArr, failedArr] = await Promise.all([
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("pending"), []) as Promise<
-      SyncChangeRecord[]
-    >,
-    adapter.scanIndex(SYNC_STORE, "status", IDBKeyRange.only("failed"), []) as Promise<
-      SyncChangeRecord[]
-    >,
+    tracker.byStatus("pending"),
+    tracker.byStatus("failed"),
   ])
   const pending = [...pendingArr, ...failedArr]
 

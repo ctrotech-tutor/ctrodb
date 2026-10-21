@@ -2,10 +2,40 @@ import type {
   ID,
   PluginStoreConfig,
   QueryCondition,
+  QueryRange,
   SchemaConfig,
   StorageAdapter,
   TransactionContext,
 } from "../types"
+
+/**
+ * Translate a storage-neutral range into a real `IDBKeyRange`.
+ *
+ * This is the only place in the codebase that touches `IDBKeyRange`, and it is
+ * reached exclusively from the IndexedDB adapter.
+ */
+function toIDBKeyRange(range: QueryRange | undefined): IDBKeyRange | undefined {
+  if (!range) return undefined
+
+  const { lower, upper, lowerOpen, upperOpen } = range
+
+  if (lower !== undefined && upper !== undefined) {
+    if (!lowerOpen && !upperOpen) {
+      return IDBKeyRange.only(lower as IDBValidKey)
+    }
+    return IDBKeyRange.bound(lower as IDBValidKey, upper as IDBValidKey, lowerOpen, upperOpen)
+  }
+
+  if (lower !== undefined) {
+    return IDBKeyRange.lowerBound(lower as IDBValidKey, lowerOpen)
+  }
+
+  if (upper !== undefined) {
+    return IDBKeyRange.upperBound(upper as IDBValidKey, upperOpen)
+  }
+
+  return undefined
+}
 
 function openDB(
   dbName: string,
@@ -155,14 +185,15 @@ function idbScanIndex(
   db: IDBDatabase,
   collection: string,
   indexName: string,
-  range: IDBKeyRange | undefined,
+  range: QueryRange | undefined,
   postFilters: QueryCondition[],
 ): Promise<Record<string, unknown>[]> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(collection, "readonly")
     const store = tx.objectStore(collection)
     const index = store.index(indexName)
-    const request = range ? index.getAll(range) : index.getAll()
+    const keyRange = toIDBKeyRange(range)
+    const request = keyRange ? index.getAll(keyRange) : index.getAll()
 
     request.onsuccess = () => {
       let results = request.result || []
@@ -267,7 +298,7 @@ export class IndexedDBAdapter implements StorageAdapter {
   async scanIndex(
     collection: string,
     indexName: string,
-    range: IDBKeyRange | undefined,
+    range: QueryRange | undefined,
     postFilters: QueryCondition[],
   ): Promise<Record<string, unknown>[]> {
     return idbScanIndex(this.#getDb(), collection, indexName, range, postFilters)

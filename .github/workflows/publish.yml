@@ -1,5 +1,12 @@
 name: Release
 
+# Publishes to npm when a version tag is pushed. No manual publishing:
+#   1. bump `version` in package.json (VERSION is injected from it at build time)
+#   2. update CHANGELOG.md
+#   3. git tag v<version> && git push origin v<version>
+#
+# Provenance is published via OIDC (id-token), so no NPM_TOKEN secret is needed.
+
 on:
   push:
     tags:
@@ -13,25 +20,29 @@ jobs:
   quality:
     name: Quality Checks
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
           cache: npm
       - name: Install esbuild (pre-warm binary)
         run: npx --yes esbuild --version || true
       - run: npm ci
       - run: npm run typecheck
-        name: TypeScript
+        name: TypeScript (src)
+      - run: npm run typecheck:tests
+        name: TypeScript (tests)
       - run: npm run lint
         name: Biome Lint
       - run: npm test
         name: Tests
       - run: npm run build
         name: Build
+      - name: Verify package contents
+        run: node scripts/verify-package.mjs
 
   create-release:
     name: Create GitHub Release
@@ -40,15 +51,11 @@ jobs:
     permissions:
       contents: write
 
-    outputs:
-      upload_url: ${{ steps.release.outputs.upload_url }}
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Generate release body
-        id: release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
@@ -56,7 +63,7 @@ jobs:
 
   publish-npm:
     name: Publish to npm
-    needs: quality
+    needs: [quality, create-release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,14 +73,35 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
       - run: npm ci
       - run: npm run build
-      - name: Upgrade npm (required for OIDC)
+
+      - name: Ensure the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Tag v$tag does not match package.json version $pkg" >&2
+            exit 1
+          fi
+
+      - name: Ensure the built runtime version matches package.json
+        run: |
+          built="$(node --input-type=module -e "import('./dist/index.mjs').then(m => console.log(m.VERSION))")"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$built" != "$pkg" ]; then
+            echo "dist VERSION ($built) does not match package.json ($pkg)" >&2
+            exit 1
+          fi
+
+      - name: Upgrade npm (required for OIDC provenance)
         run: npm install -g npm@latest
+
       - name: Strip _authToken from .npmrc (let OIDC kick in)
         run: |
           npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-          sed -i '/_authToken/d' "$npmrc"
+          if [ -f "$npmrc" ]; then sed -i '/_authToken/d' "$npmrc"; fi
+
       - run: npm publish --provenance

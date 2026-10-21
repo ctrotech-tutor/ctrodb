@@ -1,8 +1,13 @@
 import type { Database } from "../database"
-import type { CtroDBPlugin, ID } from "../types"
+import type { CtroDBPlugin, ID, WriteContext } from "../types"
 import { ChangeTracker, SYNC_STORE } from "./change-tracker"
 import { SyncEngine } from "./sync-engine"
 import type { SyncPluginConfig } from "./types"
+
+/** Data applied by the sync engine must not be queued for push again. */
+function isRemote(context?: WriteContext): boolean {
+  return context?.origin === "remote"
+}
 
 export function syncPlugin(config: SyncPluginConfig): CtroDBPlugin & { _engine?: SyncEngine } {
   let tracker: ChangeTracker
@@ -30,18 +35,27 @@ export function syncPlugin(config: SyncPluginConfig): CtroDBPlugin & { _engine?:
       // the collections filter (SyncPluginConfig.collections) at sync time.
     },
 
-    async onAfterCreate(_collection: string, record: unknown) {
+    async onAfterCreate(_collection: string, record: unknown, context?: WriteContext) {
+      if (isRemote(context)) return
       const r = record as Record<string, unknown>
       await tracker.append("create", _collection, r.id as ID, r)
     },
 
-    async onAfterUpdate(_collection: string, _id: ID, record: unknown, oldRecord?: unknown) {
+    async onAfterUpdate(
+      _collection: string,
+      _id: ID,
+      record: unknown,
+      oldRecord?: unknown,
+      context?: WriteContext,
+    ) {
+      if (isRemote(context)) return
       const r = record as Record<string, unknown>
       const old = oldRecord as Record<string, unknown> | undefined
       await tracker.append("update", _collection, _id, r, old ?? null)
     },
 
-    async onAfterDelete(_collection: string, _id: ID, oldRecord?: unknown) {
+    async onAfterDelete(_collection: string, _id: ID, oldRecord?: unknown, context?: WriteContext) {
+      if (isRemote(context)) return
       const old = oldRecord as Record<string, unknown> | undefined
       await tracker.append("delete", _collection, _id, null, old ?? null)
     },

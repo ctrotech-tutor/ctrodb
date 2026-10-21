@@ -22,9 +22,7 @@
   <a href="https://www.npmjs.com/package/ctrodb"><img src="https://img.shields.io/badge/dependencies-zero-brightgreen?style=flat" alt="zero dependencies" /></a>
   <a href="https://www.npmjs.com/package/ctrodb"><img src="https://img.shields.io/npm/dm/ctrodb?style=flat&label=downloads&color=6366f1" alt="downloads" /></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/types-TypeScript%20strict-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" /></a>
-  <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/main.yml?style=flat&branch=main&label=build" alt="build" /></a>
   <a href="https://github.com/ctrotech-tutor/ctrodb/actions"><img src="https://img.shields.io/github/actions/workflow/status/ctrotech-tutor/ctrodb/ci.yml?style=flat&branch=main&label=CI" alt="ci" /></a>
-  <a href="https://codecov.io/gh/ctrotech-tutor/ctrodb"><img src="https://img.shields.io/badge/tests-477%20passing-success?style=flat" alt="tests" /></a>
   <img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat" alt="license" />
 </p>
 
@@ -44,6 +42,7 @@
 | | Proxy Models | Transparent property access on query results. Call `.update()` and `.delete()` directly on models. |
 | | TypeScript Strict | Full generics, exhaustive type exports, strict mode throughout. |
 | Storage | IndexedDB | Persistent browser storage — survives page reloads and tab closures. |
+| | Runtime-portable queries | Indexed and range queries use storage-neutral descriptors, so identical code runs on the memory adapter in Node and on IndexedDB in the browser. |
 | | Memory Adapter | In-memory store for Node.js, testing, and prototyping. Auto-detected. |
 | | UUID IDs | Collision-free IDs via `crypto.randomUUID()`. No auto-increment conflicts across tabs. |
 | Query | Fluent Builder | Chain `.where()`, `.sort()`, `.limit()`, `.offset()` — MongoDB-style. |
@@ -284,6 +283,30 @@ const db = new Database({
 })
 ```
 
+### Write context
+
+Every record lifecycle hook receives a final `context` argument:
+
+```typescript
+interface WriteContext {
+  origin: "local" | "remote"
+}
+```
+
+`origin` is `"local"` for writes made through `Collection` and `"remote"` for
+data applied by the sync engine. Use it to avoid reacting to your own applied
+changes — that is exactly how the sync plugin avoids re-queueing synced rows:
+
+```typescript
+const plugin: CtroDBPlugin = {
+  name: "audit-log",
+  onAfterCreate(collection, record, context) {
+    if (context?.origin === "remote") return // mirrored data, not user intent
+    void writeAuditEntry(collection, record)
+  },
+}
+```
+
 ### Full-Text Search Plugin
 
 Inverted-index FTS with automatic indexing on create/update/delete.
@@ -386,6 +409,28 @@ db.onSync((event) => {
   console.log(event.phase, event.progress)
 })
 ```
+
+### Conflict semantics (pull)
+
+Sync runs `push` then `pull`. Every remote change is applied as a real write —
+schema validation, plugin hooks, full-text indexing and change events all run,
+so reactive queries update and `db.on()` fires exactly as for a local edit
+(remote writes are marked with `origin: "remote"` and are never re-queued).
+
+When a remote change targets a record that still has a queued local change, the
+**newer side wins**:
+
+| Situation | Result |
+|---|---|
+| Queued local change is newer than the remote change | Local value is kept; the remote snapshot is treated as a replay |
+| Remote change is newer | Remote value is applied; the superseded local change is drained from the queue |
+| Timestamps are equal | Remote wins — identical to the LWW conflict resolver |
+
+The queue is snapshotted *before* the push phase, so a server echo of data this
+client just pushed can never roll the local value backwards. Failed pushes are
+rolled back to `pending` (never left in `syncing`), and a remote record that
+fails schema validation aborts the pull with a sync `error` event instead of
+being silently stored.
 
 ### Plugin Config
 
@@ -587,9 +632,9 @@ src/
 ├── schema.ts         # Schema definition and validation
 └── types.ts          # Core TypeScript interfaces
 tests/
-├── unit/             # Unit tests (25 files, 477 tests)
-├── benchmarks/       # Performance benchmarks (WIP)
-├── integration/      # Cross-component tests
+├── unit/             # Unit tests
+├── node/             # Pure-Node tests (no IndexedDB globals)
+├── integration/      # Cross-component and regression tests
 └── e2e/              # End-to-end sync tests
 examples/
 ├── cdn/              # Browser CDN example
@@ -645,8 +690,9 @@ cd ctrodb
 npm install
 
 npm run dev           # Watch mode
-npm test              # Run tests (477 tests)
-npm run typecheck     # TypeScript check
+npm test              # Run all test projects
+npm run typecheck     # TypeScript check (src)
+npm run verify        # typecheck + lint + build + package checks + tests
 npm run lint          # Biome lint
 npm run build         # Build ESM + CJS + IIFE
 npm run bench         # Run benchmarks
@@ -661,7 +707,9 @@ npm run bench         # Run benchmarks
 | `npm run test:coverage` | Coverage report |
 | `npm run build` | Build all output formats (ESM + CJS + IIFE + DTS) |
 | `npm run dev` | Watch build |
-| `npm run typecheck` | TypeScript type checking |
+| `npm run typecheck` | TypeScript type checking (`src/`) |
+| `npm run typecheck:tests` | TypeScript type checking (`tests/`) |
+| `npm run verify` | Full pre-release gate (typecheck, lint, build, package verification, tests) |
 | `npm run lint` | Biome lint |
 | `npm run lint:fix` | Auto-fix lint issues |
 | `npm run format` | Format source code |

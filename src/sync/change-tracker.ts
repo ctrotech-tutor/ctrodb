@@ -1,8 +1,16 @@
+import { equalityRange } from "../query/range"
 import type { ID, StorageAdapter } from "../types"
 import type { SyncChangeRecord, SyncChangeStatus, SyncChangeType } from "./types"
 
 export const SYNC_STORE = "_ctrodb_sync_changes"
 
+/**
+ * Persistent queue of not-yet-acknowledged local writes.
+ *
+ * Status lookups go through the adapter's index-scan contract using a
+ * storage-neutral range, so the tracker works identically on memory (Node) and
+ * IndexedDB (browser).
+ */
 export class ChangeTracker {
   readonly storeName = SYNC_STORE
 
@@ -12,13 +20,9 @@ export class ChangeTracker {
     this.#adapter = adapter
   }
 
+  /** Recover records left in `syncing` by a crash or a killed tab. */
   async init(): Promise<void> {
-    const syncing = (await this.#adapter.scanIndex(
-      this.storeName,
-      "status",
-      IDBKeyRange.only("syncing"),
-      [],
-    )) as SyncChangeRecord[]
+    const syncing = await this.byStatus("syncing")
     for (const change of syncing) {
       await this.#adapter.update(this.storeName, change.id, {
         status: "pending",
@@ -75,16 +79,24 @@ export class ChangeTracker {
     return id
   }
 
+  /**
+   * Changes that still need to reach the server, oldest first.
+   *
+   * Failed changes are included so a transient failure is retried; the sync
+   * engine decides when a change has exhausted its retries.
+   */
   async getPending(): Promise<SyncChangeRecord[]> {
-    const [pending, failed] = await Promise.all([
-      this.#adapter.scanIndex(this.storeName, "status", IDBKeyRange.only("pending"), []) as Promise<
-        SyncChangeRecord[]
-      >,
-      this.#adapter.scanIndex(this.storeName, "status", IDBKeyRange.only("failed"), []) as Promise<
-        SyncChangeRecord[]
-      >,
-    ])
+    const [pending, failed] = await Promise.all([this.byStatus("pending"), this.byStatus("failed")])
     return [...pending, ...failed].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  }
+
+  async byStatus(status: SyncChangeStatus): Promise<SyncChangeRecord[]> {
+    return (await this.#adapter.scanIndex(
+      this.storeName,
+      "status",
+      equalityRange(status),
+      [],
+    )) as SyncChangeRecord[]
   }
 
   async getById(id: string): Promise<SyncChangeRecord | undefined> {
@@ -148,34 +160,16 @@ export class ChangeTracker {
   }
 
   async countByStatus(status: SyncChangeStatus): Promise<number> {
-    const records = (await this.#adapter.scanIndex(
-      this.storeName,
-      "status",
-      IDBKeyRange.only(status),
-      [],
-    )) as SyncChangeRecord[]
-    return records.length
+    return (await this.byStatus(status)).length
   }
 
   async countPending(): Promise<number> {
-    const [pending, failed] = await Promise.all([
-      this.#adapter.scanIndex(this.storeName, "status", IDBKeyRange.only("pending"), []) as Promise<
-        SyncChangeRecord[]
-      >,
-      this.#adapter.scanIndex(this.storeName, "status", IDBKeyRange.only("failed"), []) as Promise<
-        SyncChangeRecord[]
-      >,
-    ])
+    const [pending, failed] = await Promise.all([this.byStatus("pending"), this.byStatus("failed")])
     return pending.length + failed.length
   }
 
   async removeCommitted(): Promise<number> {
-    const committed = (await this.#adapter.scanIndex(
-      this.storeName,
-      "status",
-      IDBKeyRange.only("committed"),
-      [],
-    )) as SyncChangeRecord[]
+    const committed = await this.byStatus("committed")
     const ids = committed.map((c) => c.id)
     if (ids.length > 0) {
       await this.#adapter.deleteMany(this.storeName, ids)
@@ -188,11 +182,6 @@ export class ChangeTracker {
   }
 
   async getFailed(): Promise<SyncChangeRecord[]> {
-    return (await this.#adapter.scanIndex(
-      this.storeName,
-      "status",
-      IDBKeyRange.only("failed"),
-      [],
-    )) as SyncChangeRecord[]
+    return this.byStatus("failed")
   }
 }

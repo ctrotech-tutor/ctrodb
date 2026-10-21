@@ -1,9 +1,12 @@
+import type { Collection } from "../collection"
 import type { Database } from "../database"
 import type { ChangeEvent, ID, StorageAdapter } from "../types"
+import { REMOTE_WRITE } from "../write-context"
 import { ChangeTracker } from "./change-tracker"
 import { ConflictResolverEngine } from "./conflict-resolver"
 import type {
   ConflictStrategy,
+  SyncChangeRecord,
   SyncConflict,
   SyncEvent,
   SyncPhase,
@@ -224,6 +227,12 @@ export class SyncEngine {
     try {
       const signal = this.#abortController.signal
 
+      // Snapshot the queue *before* pushing. The push phase commits accepted
+      // changes, and the pull phase must still know what this client wrote
+      // during this cycle — otherwise a stale server echo could overwrite the
+      // value we just successfully pushed.
+      const pendingSnapshot = await this.#pendingByKey()
+
       this.#emit({ phase: "push" })
 
       const pushProgress = await this.#pushChanges(signal)
@@ -234,7 +243,7 @@ export class SyncEngine {
 
       this.#emit({ phase: "pull", progress: pushProgress })
 
-      const pullProgress = await this.#pullChanges(signal)
+      const pullProgress = await this.#pullChanges(signal, pendingSnapshot)
 
       const total: SyncProgress = {
         pushed: pushProgress.pushed,
@@ -326,6 +335,21 @@ export class SyncEngine {
       await this.#tracker.markFailed(err.id, err.error)
     }
 
+    // Any change the transport did not acknowledge (not accepted, not
+    // conflicted, not errored) must roll back to pending. Otherwise it stays
+    // stuck in "syncing" forever, is never retried, and is hidden from the
+    // pull conflict guard.
+    const handled = new Set<string>([
+      ...result.accepted.map((a) => a.id),
+      ...result.conflicts.map((c) => c.changeId),
+      ...result.errors.map((e) => e.id),
+    ])
+    for (const id of batchIds) {
+      if (!handled.has(id)) {
+        await this.#tracker.markPending(id)
+      }
+    }
+
     return {
       pushed: result.accepted.length,
       pulled: 0,
@@ -393,12 +417,23 @@ export class SyncEngine {
         })
         break
       }
+
+      default: {
+        // A custom resolver may return a shape we do not understand. Never
+        // leave the change stranded in "syncing": mark it failed so it stays
+        // visible and retryable instead of silently disappearing.
+        await this.#tracker.markFailed(conflict.changeId, "Unsupported conflict resolution")
+        break
+      }
     }
   }
 
   // ── Pull ──
 
-  async #pullChanges(signal: AbortSignal): Promise<{ pulled: number; failed: number }> {
+  async #pullChanges(
+    signal: AbortSignal,
+    pendingByKey: Map<string, SyncChangeRecord>,
+  ): Promise<{ pulled: number; failed: number }> {
     let pulled = 0
     let hasMore = true
     let cursor = this.#lastPullCursor
@@ -424,7 +459,7 @@ export class SyncEngine {
       })
 
       for (const change of result.changes) {
-        await this.#applyRemoteChange(change)
+        await this.#applyRemoteChange(change, pendingByKey)
       }
 
       pulled += result.changes.length
@@ -438,38 +473,84 @@ export class SyncEngine {
     return { pulled, failed: 0 }
   }
 
-  async #applyRemoteChange(change: {
-    id: string
-    collection: string
-    recordId: ID
-    type: "create" | "update" | "delete"
-    data: Record<string, unknown> | null
-    timestamp: string
-  }): Promise<void> {
-    const adapter = this.#adapter
-    const local = await adapter.findById(change.collection, change.recordId)
+  /** Index queued local changes by `collection:recordId` (oldest wins). */
+  async #pendingByKey(): Promise<Map<string, SyncChangeRecord>> {
+    const queued = await this.#tracker.getPending()
+    const byKey = new Map<string, SyncChangeRecord>()
+    for (const change of queued) {
+      const key = this.#changeKey(change.collection, change.recordId)
+      const existing = byKey.get(key)
+      if (!existing || change.timestamp < existing.timestamp) {
+        byKey.set(key, change)
+      }
+    }
+    return byKey
+  }
+
+  #changeKey(collection: string, recordId: ID): string {
+    return `${collection}\u0000${String(recordId)}`
+  }
+
+  #parseTimestamp(timestamp: string | null | undefined, fallback: number): number {
+    if (!timestamp) return fallback
+    const parsed = new Date(timestamp).getTime()
+    return Number.isNaN(parsed) ? fallback : parsed
+  }
+
+  async #applyRemoteChange(
+    change: {
+      id: string
+      collection: string
+      recordId: ID
+      type: "create" | "update" | "delete"
+      data: Record<string, unknown> | null
+      timestamp: string
+    },
+    pendingByKey: Map<string, SyncChangeRecord>,
+  ): Promise<void> {
+    const key = this.#changeKey(change.collection, change.recordId)
+    const pendingLocal = pendingByKey.get(key)
+    const remoteTs = this.#parseTimestamp(change.timestamp, 0)
+
+    if (pendingLocal) {
+      const localTs = this.#parseTimestamp(pendingLocal.timestamp, 0)
+
+      // The local edit is strictly newer: the remote change is a replay.
+      // Keep the local value; the queue will push it on the next cycle.
+      if (localTs > remoteTs) return
+
+      // The remote change wins (LWW, ties included). Drop the superseded
+      // local change so the next push cannot resurrect stale data.
+      await this.#tracker.markCommitted(pendingLocal.id, { serverTimestamp: change.timestamp })
+      pendingByKey.delete(key)
+    }
+
+    // Route through Collection so remote data gets schema validation, plugin
+    // hooks, full-text indexing and change events — exactly like a local
+    // write. Plugins receive origin:"remote" and must not re-queue it.
+    const collection = this.#db.collection(change.collection) as Collection<Record<string, unknown>>
 
     switch (change.type) {
       case "create":
       case "update": {
         if (change.data === null) break
+        const data = { ...change.data, id: change.recordId }
 
-        if (local) {
-          await adapter.update(change.collection, change.recordId, {
-            ...change.data,
-          } as Record<string, unknown>)
+        // The adapter merges update changes into the existing record, so an
+        // update must also carry the primary key to stay consistent.
+        const existing = await collection.get(change.recordId)
+        if (existing) {
+          await collection.update(change.recordId, data, REMOTE_WRITE)
         } else {
-          await adapter.create(change.collection, {
-            id: change.recordId,
-            ...change.data,
-          } as Record<string, unknown>)
+          await collection.create(data, REMOTE_WRITE)
         }
         break
       }
 
       case "delete": {
-        if (local) {
-          await adapter.delete(change.collection, change.recordId)
+        const existing = await collection.get(change.recordId)
+        if (existing) {
+          await collection.delete(change.recordId, REMOTE_WRITE)
         }
         break
       }

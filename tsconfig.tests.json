@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx"
+  },
+  "include": ["tests/integration/sync-pull-safety.test.ts", "tests/integration/planner-index-eligibility.test.ts", "tests/unit/query/range.test.ts", "tests/node/no-idb.test.ts"]
+}

@@ -1,4 +1,5 @@
-import type { ID, QueryCondition, StorageAdapter, TransactionContext } from "../types"
+import { queryRangeContains } from "../query/range"
+import type { ID, QueryCondition, QueryRange, StorageAdapter, TransactionContext } from "../types"
 
 export class MemoryAdapter implements StorageAdapter {
   readonly name = "memory"
@@ -92,33 +93,14 @@ export class MemoryAdapter implements StorageAdapter {
   async scanIndex(
     collection: string,
     indexName: string,
-    range: IDBKeyRange | undefined,
+    range: QueryRange | undefined,
     postFilters: QueryCondition[],
   ): Promise<Record<string, unknown>[]> {
     const all = await this.findAll(collection)
     let results = all
 
     if (range) {
-      results = results.filter((r) => {
-        const val = r[indexName] as unknown
-        if (range.lower !== undefined) {
-          if (
-            range.lowerOpen
-              ? (val as number) <= (range.lower as number)
-              : (val as number) < (range.lower as number)
-          )
-            return false
-        }
-        if (range.upper !== undefined) {
-          if (
-            range.upperOpen
-              ? (val as number) >= (range.upper as number)
-              : (val as number) > (range.upper as number)
-          )
-            return false
-        }
-        return true
-      })
+      results = results.filter((record) => queryRangeContains(range, record[indexName]))
     }
 
     for (const cond of postFilters) {

@@ -1,6 +1,6 @@
 {
   "name": "ctrodb",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A zero-dependency, reactive, client-side database with full-text search and relations. Schema-driven, type-safe, and a joy to use.",
   "type": "module",
   "main": "dist/index.cjs",
@@ -22,20 +22,24 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
+    "build:verify": "npm run build && node scripts/verify-package.mjs",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "bench": "vitest bench",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "verify": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run build && node scripts/verify-package.mjs && npm test"
   },
   "keywords": [
     "ctrodb",
@@ -76,5 +80,13 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }
