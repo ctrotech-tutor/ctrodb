@@ -455,6 +455,8 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** none.
 
 #### M-18 — React is not declared as a peer dependency
+
+> **Status:** fixed in 1.7.1 — `peerDependencies.react` (`>=18`), marked optional in `peerDependenciesMeta` because only `ctrodb/react` needs it.
 - **Where:** `package.json` has no `dependencies` and no `peerDependencies`; React is a devDependency, and `tsup` externalises it.
 - **Evidence:** confirmed in `package.json:57-77` and in the built `dist/react/react.mjs` (`import … from "react"`).
 - **Impact:** package managers cannot warn about duplicate/incompatible React copies; npm users get no signal that `ctrodb/react` needs React.
@@ -462,6 +464,8 @@ Confidence: **Confirmed** = reproduced by execution · **Strongly indicated** = 
 - **BC:** none.
 
 #### M-19 — Documentation does not match the shipped hooks API
+
+> **Status:** fixed in 1.7.1 — every README hook/model example was corrected, and `scripts/type-smoke/docs.tsx` now compiles those examples against the built declarations in `npm run verify` and CI.
 - **Where:** `README.md:434-450` and `521-531`.
 - **Evidence (confirmed by `tsc` + runtime exports):**
   - `useSync()` returns `{ sync, status }`, but the README types it as `() => Promise<void>` and shows `<button onClick={sync}>` — a compile error.

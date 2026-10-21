@@ -353,10 +353,10 @@ const posts = await postsCol.with("author", "comments").fetch()
 // posts[0].comments — resolved comment array
 ```
 
-**Lazy loading — getters (built into Model):**
+**Lazy loading — `model.load()`, typed:**
 ```typescript
-const author = await post.author.first()      // belongs_to
-const comments = await post.comments.fetch()  // has_many
+const author   = await post.load("author")    // belongs_to → one record
+const comments = await post.load("comments")  // has_many → array
 ```
 
 > Note: `relationsPlugin()` is still required in the plugins array for the plugin system to recognize and initialize relation metadata.
@@ -448,19 +448,28 @@ silently accepting it used to look successful while losing the change. Use
 
 ### Relations
 
-Relations are declared in the schema and come in two forms, deliberately:
+Relations are declared in the schema; there are two ways to read them, and the
+difference is *when* the read happens — not what it returns:
 
 ```ts
 const author = await db.collection("authors").get("a1")
 
-const posts  = await author.load("posts")    // data: an array (has_many)
-const posts2 = await author.posts.fetch()    // data: a lazy query you can filter
-const eager  = await db.collection("authors").with("posts").fetch() // data: arrays
+// Lazy: one round-trip per model, when you ask.
+const posts = await author.load("posts")            // has_many → Model[]
+const post  = await db.collection("posts").get("p1")
+const owner = await post.load("author")             // belongs_to → one Model
+
+// Eager: one round-trip per collection, for a whole result set.
+const withPosts = await db.collection("authors").with("posts").fetch()
+withPosts[0].posts                                  // resolved Model[]
 ```
 
-`load(name)` is the single "give me the data" call: it resolves to an array for
-`has_many` and to one record for `has_one`/`belongs_to`. `load()` rejects if the
-name is not a declared relation.
+`load(name)` resolves to an array for `has_many` and to a single record for
+`has_one`/`belongs_to`. It rejects when the name is not a declared relation,
+instead of resolving `undefined`. `model.<relation>` also exists as a lazy
+`QueryBuilder` for when you need to filter the related rows; relations are not
+inferred from the schema in the type system yet, so that form is typed as a
+`QueryBuilder` only through `load()` — use `load()` in typed code.
 
 ## Ordering
 
@@ -577,20 +586,21 @@ transport.onServerPush((changes) => {
 import { useSyncStatus, useSync, useSyncQueue, SyncDevPanel } from "ctrodb/react"
 
 function SyncStatus() {
-  const status = useSyncStatus()
-  const sync = useSync()
+  const { isConnected, pendingChanges } = useSyncStatus()
+  const { sync } = useSync()
 
   return (
     <div>
-      <span>Connected: {status.isConnected ? "Yes" : "No"}</span>
-      <span>Pending: {status.pendingChanges}</span>
-      <button onClick={sync}>Sync Now</button>
+      <span>Connected: {isConnected ? "Yes" : "No"}</span>
+      <span>Pending: {pendingChanges}</span>
+      <button onClick={() => void sync()}>Sync Now</button>
     </div>
   )
 }
 
+// The panel reads the database from <DatabaseProvider>.
 function AdminPanel() {
-  return <SyncDevPanel db={db} />
+  return <SyncDevPanel />
 }
 ```
 
@@ -668,7 +678,7 @@ function TodoList() {
 | `useQuery<T>(name, queryFn?, deps?)` | `{ data: (Model<T> & T)[]; loading: boolean; error: Error \| undefined }` | Reactive query; refetches on changes for that collection |
 | `useDoc<T>(name, id)` | `{ data: (Model<T> & T) \| undefined; loading: boolean; error: Error \| undefined }` | Single document by ID |
 | `useMutation<T>(name)` | `{ create, update, delete, loading, error, reset }` | CRUD with loading/error state; `delete` is aliased from `del` |
-| `useSyncStatus()` | `SyncStatusResult` — `{ status, isConnected, pendingCount, failedCount, lastError, refresh }` | Sync connection and queue counts |
+| `useSyncStatus()` | `{ isSyncing, isConnected, lastSyncAt, pendingChanges, failedChanges, lastError }` | Sync connection state and queue counts (polls every second) |
 | `useSync(callback?)` | `{ sync: () => Promise<void>; status: SyncStatusResult }` | Trigger a sync and observe its status |
 | `useSyncQueue()` | `{ snapshot: SyncQueueSnapshot; loading: boolean; error?: Error; refresh: () => Promise<void> }` | Live sync queue for dev tools |
 | `useDatabase()` | `Database` | The instance from `<DatabaseProvider>` |
@@ -695,7 +705,7 @@ Behaviour worth knowing:
   pull triggers one refetch, not one per record.
 - **Responses are sequenced.** A slow query that resolves after a newer one is
   discarded instead of overwriting fresher data.
-| `<SyncDevPanel db={db} />` | Component | Dark-themed sync admin panel with stats, retry, event log |
+| `<SyncDevPanel maxEvents? />` | Component | Dark-themed sync admin panel (reads the db from context) |
 
 ---
 

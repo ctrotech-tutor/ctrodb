@@ -23,7 +23,7 @@ interface DatabaseShim {
   collection(name: string): unknown
 }
 
-export class Collection<T extends Record<string, unknown>> {
+export class Collection<T extends object> {
   readonly name: string
 
   #db: DatabaseShim
@@ -122,7 +122,7 @@ export class Collection<T extends Record<string, unknown>> {
     const event: ChangeEvent = {
       type: "create",
       collection: this.name,
-      recordId: record.id as ID,
+      recordId: (record as Record<string, unknown>).id as ID,
       record,
     }
     this.#changeSignal.value = event

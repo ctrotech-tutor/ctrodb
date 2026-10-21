@@ -24,6 +24,7 @@
     "ignoreDeprecations": "6.0"
   },
   "include": [
-    "index.ts"
+    "index.ts",
+    "docs.tsx"
   ]
 }

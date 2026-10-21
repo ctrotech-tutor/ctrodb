@@ -1,7 +1,7 @@
 import type { Schema } from "../schema"
 import type { ID } from "../types"
 
-export class Model<T extends Record<string, unknown> = Record<string, unknown>> {
+export class Model<T extends object = Record<string, unknown>> {
   #data: T
   #collection: {
     readonly name: string
@@ -49,7 +49,7 @@ export class Model<T extends Record<string, unknown> = Record<string, unknown>> 
           }
           return val
         }
-        return target.#data[prop as string]
+        return (target.#data as Record<string, unknown>)[prop as string]
       },
 
       set: (_target, prop: string | symbol, _value: unknown) => {
@@ -76,7 +76,7 @@ export class Model<T extends Record<string, unknown> = Record<string, unknown>> 
       getOwnPropertyDescriptor: (target, prop: string | symbol) => {
         if (Object.hasOwn(target.#data, prop as string)) {
           return {
-            value: target.#data[prop as string],
+            value: (target.#data as Record<string, unknown>)[prop as string],
             enumerable: true,
             configurable: true,
             writable: false,
