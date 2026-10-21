@@ -93,6 +93,7 @@ export type {
   ChangeEvent,
   ChangeType,
   CollectionSchema,
+  ConnectionChangeEvent,
   CtroDBPlugin,
   FieldDefinition,
   FieldType,

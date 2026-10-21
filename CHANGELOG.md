@@ -3,6 +3,40 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.13.0] - 2026-10-21
+
+### Fixed
+- **IndexedDB version upgrades no longer strand old tabs.** Every opened
+  connection now handles `versionchange` by closing its stale connection,
+  marking the owning `Database` disconnected, and running plugin teardown. This
+  lets the waiting tab complete its upgrade instead of deadlocking behind an old
+  connection.
+- **Applications can observe a version change.** `db.onConnectionChange()` emits
+  a typed event with the database name, old/new versions, and an actionable
+  message; the README shows how to prompt the user to reload. Reconnect against
+  a newer schema works; attempting to reopen with the old schema rejects with
+  an actionable `ConnectionError` (IndexedDB downgrades are not supported).
+- **A blocked open request no longer leaks a late connection.** An IndexedDB
+  open request cannot be cancelled after `onblocked`; if it later succeeds after
+  ctrodb rejected the operation, the newly opened connection is immediately
+  closed rather than silently holding up future upgrades.
+- **Blocked-upgrade failures are typed and actionable.** `onblocked` rejects
+  promptly with a `ConnectionError` explaining that other app tabs should close
+  or reload; it no longer logs and hangs.
+
+### API
+- Added `ConnectionChangeEvent` and `Database.onConnectionChange(callback)`.
+- Added optional `StorageAdapter.setConnectionChangeHandler()` so custom adapters
+  remain source-compatible and can signal external connection invalidation.
+
+### Verification
+- `tests/integration/write-integrity.test.ts` covers blocked opens, a real
+  fake-indexeddb v1→v2 upgrade with two `Database` instances, notification and
+  plugin teardown, stale-instance rejection, actionable downgrade failure, and
+  closing a request that succeeds after an earlier blocked rejection.
+- The README callback snippet compiles in docs type-smoke.
+- `npm run verify` — 714 tests / 42 files.
+
 ## [1.12.0] - 2026-10-21
 
 ### Fixed

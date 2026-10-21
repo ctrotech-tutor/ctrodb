@@ -1,6 +1,7 @@
-import { StorageQuotaError } from "../errors"
+import { ConnectionError, StorageQuotaError } from "../errors"
 import { matchesWhere } from "../query/predicate"
 import type {
+  ConnectionChangeEvent,
   ID,
   PluginStoreConfig,
   QueryCondition,
@@ -44,9 +45,11 @@ function openDB(
   dbName: string,
   version: number,
   onUpgrade: (db: IDBDatabase, oldVersion: number, tx: IDBTransaction) => void,
+  onConnectionChange: (event: ConnectionChangeEvent) => void,
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(dbName, version)
+    let settled = false
 
     request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
       // `request.transaction` is the versionchange transaction, and it is the
@@ -58,16 +61,57 @@ function openDB(
       onUpgrade(request.result, event.oldVersion, tx)
     }
 
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const db = request.result
+      // `onblocked` cannot cancel an IDBOpenDBRequest. If the blocking tab closes
+      // after we have rejected, the request may still succeed; close that late
+      // connection instead of leaking it and blocking a future upgrade.
+      if (settled) {
+        db.close()
+        return
+      }
+      settled = true
+      db.onversionchange = (event) => {
+        const message =
+          `Database "${dbName}" was upgraded by another tab ` +
+          `(version ${event.oldVersion} → ${event.newVersion ?? "deleted"}). ` +
+          "This connection was closed; reload or reconnect using the current schema."
+        db.close()
+        onConnectionChange({
+          type: "versionchange",
+          databaseName: dbName,
+          oldVersion: event.oldVersion,
+          newVersion: event.newVersion,
+          message,
+        })
+      }
+      resolve(db)
+    }
+    request.onerror = () => {
+      if (settled) return
+      settled = true
+      const error = request.error
+      if (error?.name === "VersionError") {
+        reject(
+          new ConnectionError(
+            dbName,
+            `the stored database schema version is newer than the requested version ${version}. ` +
+              "Upgrade this application or use a fresh database name; downgrades are not supported.",
+          ),
+        )
+        return
+      }
+      reject(error ?? new Error(`[ctrodb] Could not open IndexedDB database "${dbName}"`))
+    }
     request.onblocked = () => {
-      // Do not leave the caller hanging: a blocked upgrade cannot complete
-      // until every other connection to this database is closed, so report it
-      // with an actionable message instead of waiting forever.
+      if (settled) return
+      settled = true
       reject(
-        new Error(
-          `[ctrodb] Opening "${dbName}" is blocked by another connection (usually another tab). ` +
-            "Close other tabs running this app, then retry.",
+        new ConnectionError(
+          dbName,
+          "an upgrade is blocked by another open connection (usually another tab). " +
+            "The old connection will close automatically when it receives the versionchange event. " +
+            "Close/reload that tab, then retry.",
         ),
       )
     }
@@ -352,11 +396,20 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   #db: IDBDatabase | null = null
   #connected = false
+  #connectionChangeHandler: (event: ConnectionChangeEvent) => void = () => {}
+
+  setConnectionChangeHandler(handler: (event: ConnectionChangeEvent) => void): void {
+    this.#connectionChangeHandler = handler
+  }
 
   async connect(name: string, schema: SchemaConfig | null): Promise<void> {
     const version = schema?.version || 1
     const migrationHandler = createMigrationHandler(schema)
-    this.#db = await openDB(name, version, migrationHandler)
+    this.#db = await openDB(name, version, migrationHandler, (event) => {
+      this.#db = null
+      this.#connected = false
+      this.#connectionChangeHandler(event)
+    })
     this.#connected = true
   }
 

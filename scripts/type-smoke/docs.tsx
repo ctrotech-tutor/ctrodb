@@ -98,6 +98,13 @@ export function TodoList() {
   )
 }
 
+// README → IndexedDB upgrades across tabs.
+export function ConnectionNotice() {
+  return db.onConnectionChange((event) => {
+    if (event.type === "versionchange") console.info(event.message)
+  })
+}
+
 // README → Batch inserts.
 export async function batchExamples() {
   const todos = await db

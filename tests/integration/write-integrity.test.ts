@@ -216,6 +216,86 @@ describe("IndexedDB upgrade handling", () => {
       })
     }
   })
+
+  it("closes stale connections on versionchange and notifies Database subscribers", async () => {
+    const name = uniqueName("versionchange")
+    const destroyed = vi.fn()
+    const lifecyclePlugin: CtroDBPlugin = {
+      name: "lifecycle",
+      onDatabaseDestroy: destroyed,
+    }
+    const v1 = await makeDb({
+      adapter: "indexeddb",
+      name,
+      plugins: [lifecyclePlugin],
+      schema: {
+        version: 1,
+        collections: { users: { fields: { email: { type: "string" }, name: { type: "string" } } } },
+      },
+    })
+    const events: Array<{ oldVersion: number; newVersion: number | null }> = []
+    v1.onConnectionChange((event) => events.push(event))
+
+    const v2 = await makeDb({
+      adapter: "indexeddb",
+      name,
+      schema: {
+        version: 2,
+        collections: {
+          users: {
+            fields: { email: { type: "string" }, name: { type: "string" } },
+            indexes: [{ field: "email" }],
+          },
+        },
+      },
+    })
+
+    expect(v1.isConnected).toBe(false)
+    expect(v2.isConnected).toBe(true)
+    await v1.disconnect()
+    expect(destroyed).toHaveBeenCalledTimes(1)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: "versionchange", oldVersion: 1, newVersion: 2 })
+    expect(() => v1.collection("users")).toThrow(/not connected/i)
+    await expect(v1.connect()).rejects.toThrow(/newer than the requested version/i)
+  })
+
+  it("closes an IndexedDB request that succeeds after a blocked rejection", async () => {
+    const adapter = new IndexedDBAdapter()
+    const originalIndexedDB = globalThis.indexedDB
+    const close = vi.fn()
+    const lateRequest = {
+      result: { close },
+      error: null,
+      transaction: null,
+      onsuccess: null as null | (() => void),
+      onerror: null as null | (() => void),
+      onupgradeneeded: null as null | (() => void),
+      onblocked: null as null | (() => void),
+    }
+    Object.defineProperty(globalThis, "indexedDB", {
+      configurable: true,
+      value: {
+        open: () => {
+          setTimeout(() => lateRequest.onblocked?.(), 0)
+          setTimeout(() => lateRequest.onsuccess?.(), 1)
+          return lateRequest
+        },
+      },
+    })
+
+    try {
+      await expect(adapter.connect("late-open-db", null)).rejects.toThrow(/blocked/i)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(adapter.isConnected()).toBe(false)
+    } finally {
+      Object.defineProperty(globalThis, "indexedDB", {
+        configurable: true,
+        value: originalIndexedDB,
+      })
+    }
+  })
 })
 
 describe("client-wins does not drop a rejected change (H-15)", () => {
