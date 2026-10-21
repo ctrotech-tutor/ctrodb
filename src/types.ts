@@ -42,11 +42,22 @@ export interface SchemaConfig {
 
 export type QueryOperator = "==" | "!=" | ">" | "<" | ">=" | "<="
 
+/**
+ * One filter in a query.
+ *
+ * - `where`  — field/operator/value comparison.
+ * - `search` — case-insensitive **substring** match on one field.
+ * - `match`  — tokenised **AND** match across a set of fields (`fields`), which
+ *   the full-text index can answer without scanning the collection.
+ *   `field` is the first field for display purposes only.
+ */
 export interface QueryCondition {
-  type: "where" | "search"
+  type: "where" | "search" | "match"
   field: string
   op?: QueryOperator
   value: unknown
+  /** Fields a `match` condition applies to. */
+  fields?: string[]
 }
 
 export type QueryStrategy = "index_scan" | "full_scan" | "id_lookup"
@@ -149,6 +160,16 @@ export interface CtroDBPlugin {
   ): void
   onBeforeDelete?(collection: string, id: ID, context?: WriteContext): void
   onAfterDelete?(collection: string, id: ID, oldRecord?: unknown, context?: WriteContext): void
+  /**
+   * Resolve a tokenised collection-wide query to candidate document ids.
+   *
+   * Optional capability: a plugin that maintains a token index (`ftsPlugin()`)
+   * implements it, and `query().match()` then answers from the index instead of
+   * scanning. Results are treated as **candidates** — the query predicate runs
+   * on them afterwards — so an implementation may return a superset but never
+   * a subset.
+   */
+  queryTokens?(collection: string, query: string, fields?: string[]): Promise<ID[] | undefined>
 }
 
 /**

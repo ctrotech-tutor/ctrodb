@@ -10,6 +10,7 @@ import type { SyncEvent, SyncStatus } from "./sync/types"
 import type {
   ChangeEvent,
   CtroDBPlugin,
+  ID,
   PluginStoreName,
   SchemaConfig,
   StorageAdapter,
@@ -229,6 +230,29 @@ export class Database {
     return this.#adapter
   }
 
+  /**
+   * Ask the plugins whether one of them can answer token queries.
+   *
+   * The first plugin that implements `queryTokens` wins; when none does, the
+   * lookup returns `undefined` and `query().match()` scans instead.
+   */
+  async _queryTokens(
+    collection: string,
+    query: string,
+    fields?: string[],
+  ): Promise<ID[] | undefined> {
+    for (const plugin of this.#plugins) {
+      if (typeof plugin.queryTokens === "function") {
+        const ids = await plugin.queryTokens(collection, query, fields)
+        // `undefined` means "this plugin does not index that collection (or
+        // those fields)": stop and let the caller scan, rather than returning
+        // an empty set that would look like "no matches".
+        if (ids) return ids
+      }
+    }
+    return undefined
+  }
+
   _emit(event: ChangeEvent): void {
     this.#changeSignal.value = event
   }
@@ -239,6 +263,8 @@ export class Database {
       _getSchema: () => this.#schema,
       _emit: (event: ChangeEvent) => this._emit(event),
       collection: (name: string) => this.collection(name),
+      _queryTokens: (collection: string, query: string, fields?: string[]) =>
+        this._queryTokens(collection, query, fields),
     }
   }
 

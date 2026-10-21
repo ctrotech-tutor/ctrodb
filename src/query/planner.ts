@@ -51,11 +51,15 @@ export class QueryPlanner {
 
     const indexedConditions: QueryCondition[] = []
     const nonIndexedConditions: QueryCondition[] = []
-    let searchCondition: QueryCondition | null = null
+    // `search` (substring) and `match` (tokenised) are applied by the executor
+    // on the rows themselves, so they cannot drive an adapter key range. They
+    // are carried, not dropped — previously every `search()` except the last
+    // one disappeared from the plan, so chaining them silently widened results.
+    const textualConditions: QueryCondition[] = []
 
     for (const condition of conditions) {
-      if (condition.type === "search") {
-        searchCondition = condition
+      if (condition.type === "search" || condition.type === "match") {
+        textualConditions.push(condition)
         continue
       }
       if (this.#isFieldIndexed(condition.field, indexes)) {
@@ -65,7 +69,7 @@ export class QueryPlanner {
       }
     }
 
-    if (indexedConditions.length === 0 && !searchCondition) {
+    if (indexedConditions.length === 0 && textualConditions.length === 0) {
       return {
         strategy: "full_scan",
         primaryConditions: [],
@@ -74,10 +78,10 @@ export class QueryPlanner {
       }
     }
 
-    if (searchCondition) {
+    if (textualConditions.length > 0) {
       return {
         strategy: "full_scan",
-        primaryConditions: [searchCondition],
+        primaryConditions: textualConditions,
         postFilterConditions: [...indexedConditions, ...nonIndexedConditions],
         groupType: "single",
       }

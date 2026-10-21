@@ -71,32 +71,60 @@ await db.disconnect()
 // documents the current implementation needs ~0.2 s, while the old layout needed
 // ~2.2 s, so the budget catches a return to quadratic behaviour while leaving
 // room for a slow, shared CI runner.
+const docsSchema = {
+  version: 1,
+  collections: {
+    docs: {
+      fields: { title: { type: "string" }, body: { type: "string" } },
+      searchable: ["title", "body"],
+    },
+  },
+}
+
+const FTS_ROWS = 6_000
 const ftsDb = new Database({
   name: `perf-guard-fts-${Math.random()}`,
   adapter: "memory",
-  schema: {
-    version: 1,
-    collections: {
-      docs: {
-        fields: { title: { type: "string" }, body: { type: "string" } },
-        searchable: ["title", "body"],
-      },
-    },
-  },
+  schema: docsSchema,
   plugins: [ftsPlugin()],
 })
 await ftsDb.connect()
 
-const FTS_ROWS = 6_000
 const ftsStart = performance.now()
 for (let i = 0; i < FTS_ROWS; i++) {
   await ftsDb.collection("docs").create({
     title: `title ${i}`,
-    body: `the quick brown fox jumps over the lazy dog number ${i}`,
+    body: `the quick brown fox jumps over the lazy dog uniq${i}`,
   })
 }
 const ftsMs = performance.now() - ftsStart
+
+// `match()` must be answered by the index: same one-hit query, indexed vs scanned.
+const scanDb = new Database({
+  name: `perf-guard-scan-${Math.random()}`,
+  adapter: "memory",
+  schema: docsSchema,
+})
+await scanDb.connect()
+for (let i = 0; i < FTS_ROWS; i++) {
+  await scanDb.collection("docs").create({
+    title: `title ${i}`,
+    body: `the quick brown fox jumps over the lazy dog uniq${i}`,
+  })
+}
+
+const matchQuery = "uniq5999"
+const matchIndexed = await time(
+  () => ftsDb.collection("docs").query().match(matchQuery).fetch(),
+  50,
+)
+const matchScanned = await time(
+  () => scanDb.collection("docs").query().match(matchQuery).fetch(),
+  50,
+)
+
 await ftsDb.disconnect()
+await scanDb.disconnect()
 
 const ratio = scanned / indexed
 const failures = []
@@ -105,6 +133,14 @@ if (ratio < 3) {
   failures.push(
     `indexed lookup is only ${ratio.toFixed(2)}x faster than a full scan (expected >= 3x); ` +
       "an index that does not accelerate reads is the regression this guards against",
+  )
+}
+
+const matchRatio = matchScanned / matchIndexed
+if (matchRatio < 5) {
+  failures.push(
+    `indexed match() is only ${matchRatio.toFixed(1)}x faster than a scan (expected >= 5x); ` +
+      "the full-text index is not being used",
   )
 }
 
@@ -129,6 +165,9 @@ console.log(`  indexed equality : ${indexed.toFixed(4)} ms`)
 console.log(`  full scan        : ${scanned.toFixed(4)} ms  (${ratio.toFixed(1)}x slower)`)
 console.log(`  count()          : ${counted.toFixed(4)} ms`)
 console.log(`  fts index ${FTS_ROWS} docs: ${ftsMs.toFixed(0)} ms`)
+console.log(
+  `  match (1 hit)    : ${matchIndexed.toFixed(4)} ms indexed | ${matchScanned.toFixed(4)} ms scanned (${matchRatio.toFixed(0)}x)`,
+)
 
 if (failures.length > 0) {
   console.error("\nPerformance guard failed:")

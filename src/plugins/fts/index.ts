@@ -26,15 +26,11 @@ export function ftsPlugin(): CtroDBPlugin {
     const stored = await adapter.getMetadata(FORMAT_KEY)
     if (Number(stored) >= FTS_FORMAT) return
 
-    const existing = await adapter.findAll(FTS_STORE)
-    const hasLegacyRecords = existing.some(
-      (record) => (record as { docId?: unknown }).docId === undefined,
-    )
-
-    if (hasLegacyRecords) {
-      await indexer.clear()
-      await rebuild()
-    }
+    // The stamp is absent on a fresh store *and* on a database that was written
+    // before this plugin existed. Both need the index built from the rows, so
+    // rebuild whenever the stamp is not current.
+    await indexer.clear()
+    await rebuild()
 
     await adapter.setMetadata(FORMAT_KEY, FTS_FORMAT)
   }
@@ -76,6 +72,24 @@ export function ftsPlugin(): CtroDBPlugin {
       if (fields && fields.length > 0) {
         searchableFieldsMap.set(collection.name, fields)
       }
+    },
+
+    /**
+     * Answer `query().match()` from the index.
+     *
+     * Declines (`undefined`) when this plugin does not index the collection, or
+     * when the caller asked about fields outside the indexed set — the index is
+     * a *superset* of a collection-wide token query but not of a field-specific
+     * one, and returning ids there would lose rows.
+     */
+    async queryTokens(collection: string, query: string, fields?: string[]) {
+      if (!indexer) return undefined
+      const searchable = searchableFieldsMap.get(collection)
+      if (!searchable || searchable.length === 0) return undefined
+      if (fields && fields.length > 0 && fields.some((field) => !searchable.includes(field))) {
+        return undefined
+      }
+      return indexer.search(collection, query)
     },
 
     // These hooks are awaited by the write path. Returning the promise (rather

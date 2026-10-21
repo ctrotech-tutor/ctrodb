@@ -36,6 +36,7 @@ const schema = defineSchema({
     },
     posts: {
       fields: { title: { type: "string" }, authorId: { type: "string" } },
+      searchable: ["title"],
       relations: {
         author: { type: "belongs_to", collection: "authors", foreignKey: "authorId" },
       },
@@ -95,6 +96,14 @@ export function TodoList() {
       </button>
     </ul>
   )
+}
+
+// README → Search: substring vs tokenised.
+export async function searchExamples() {
+  const substring = await db.collection("posts").query().search("title", "quick").fetch()
+  const tokenised = await db.collection("posts").query().match("typescript database").fetch()
+  const scoped = await db.collection("posts").query().match("typescript", ["title"]).fetch()
+  return { substring, tokenised, scoped }
 }
 
 // README → Hooks API: deps whose length changes between renders.

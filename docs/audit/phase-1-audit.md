@@ -579,7 +579,7 @@ Complexity: **S** ≤ ½ day, **M** 1–3 days, **L** 1–2 weeks (for one exper
 
 ### P3 — Optional enhancements
 
-- **P3-1** Integrate FTS into `QueryBuilder` (multi-field, tokenized, index-backed) — additive API; depends on P0-5 and P2-2.
+- **P3-1** ~~Integrate FTS into `QueryBuilder` (multi-field, tokenized, index-backed)~~ — **done in 1.10.0**: `query().match(text, fields?)` is the tokenised, multi-field, index-backed query; `search()` keeps its substring contract, so no existing caller changed semantics. Results are identical with or without the index (asserted both ways in `tests/integration/query-match.test.ts`).
 - **P3-2** Schema-derived document/relation types (`defineSchema`) — additive; depends on P1-3.
 - **P3-3** Typed relation results (`with()` return types) — depends on P3-2.
 - **P3-4** Conflict strategies beyond LWW (field-level merge, CRDT-style counters) — only after P1-5 makes current semantics honest.

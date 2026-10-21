@@ -44,16 +44,6 @@ afterEach(async () => {
   await db.disconnect()
 })
 
-async function scanEquals(collection: string, field: string, value: unknown): Promise<string[]> {
-  // A query the planner cannot serve from an index: same predicate, applied to
-  // a full scan by the executor.
-  const all = await db.collection<Record<string, unknown>>(collection).getAll()
-  return all
-    .filter((record) => record[field] === value)
-    .map((record) => String(record.id))
-    .sort()
-}
-
 describe("memory adapter indexes", () => {
   it("returns the same rows as a full scan", async () => {
     const items = db.collection("items")
