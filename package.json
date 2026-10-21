@@ -58,7 +58,8 @@
     "format": "biome format --write src/",
     "prepublishOnly": "npm run build && npm test",
     "verify": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run build && node scripts/verify-package.mjs && npm run typecheck:smoke && npm test",
-    "typecheck:smoke": "tsc -p scripts/type-smoke/tsconfig.json"
+    "typecheck:smoke": "tsc -p scripts/type-smoke/tsconfig.json",
+    "perf:guard": "node scripts/perf-guard.mjs"
   },
   "keywords": [
     "ctrodb",

@@ -52,6 +52,13 @@ jobs:
       - run: npm run build
         name: Build
 
+      # Ratios and floors, not benchmarks: this fails if an index stops
+      # accelerating reads (it once made them 2.6x slower) or if count() starts
+      # materialising the collection again.
+      - run: npm run perf:guard
+        name: Performance guard
+        if: matrix.node-version == 22
+
       - run: node scripts/verify-package.mjs
         name: Verify package artifacts
 
