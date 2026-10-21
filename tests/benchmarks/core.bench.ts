@@ -20,8 +20,17 @@ const schema = {
         name: { type: "string" },
         group: { type: "string" },
         score: { type: "number" },
+        ordinal: { type: "number" },
       },
-      indexes: [{ field: "group" }, { field: "score" }],
+      indexes: [{ field: "group" }, { field: "score" }, { field: "ordinal" }],
+    },
+    scanItems: {
+      fields: {
+        name: { type: "string" },
+        group: { type: "string" },
+        score: { type: "number" },
+        ordinal: { type: "number" },
+      },
     },
   },
 } as const
@@ -34,21 +43,25 @@ async function seeded(): Promise<Database> {
   })
   await db.connect()
   const items = db.collection("items")
+  const scanItems = db.collection("scanItems")
   await Promise.all(
-    Array.from({ length: SIZE }, (_, i) =>
-      items.create({
+    Array.from({ length: SIZE }, async (_, i) => {
+      const record = {
         id: `item-${String(i).padStart(6, "0")}`,
         name: `name ${i}`,
         group: `g${i % 10}`,
         score: i % 100,
-      }),
-    ),
+        ordinal: i,
+      }
+      await Promise.all([items.create(record), scanItems.create(record)])
+    }),
   )
   return db
 }
 
 const db = await seeded()
 const items = db.collection("items")
+const scanItems = db.collection("scanItems")
 
 describe("reads", () => {
   bench("get by id", async () => {
@@ -73,6 +86,34 @@ describe("reads", () => {
 
   bench("index range (score >= 90)", async () => {
     await items.query().where("score", ">=", 90).fetch()
+  })
+
+  bench("selective range (10 of 10k)", async () => {
+    await items
+      .query()
+      .where("ordinal", ">=", SIZE - 10)
+      .fetch()
+  })
+
+  bench("selective range scan (10 of 10k)", async () => {
+    await scanItems
+      .query()
+      .where("ordinal", ">=", SIZE - 10)
+      .fetch()
+  })
+
+  bench("broad range (50% of 10k)", async () => {
+    await items
+      .query()
+      .where("ordinal", ">=", SIZE / 2)
+      .fetch()
+  })
+
+  bench("broad range scan (50% of 10k)", async () => {
+    await scanItems
+      .query()
+      .where("ordinal", ">=", SIZE / 2)
+      .fetch()
   })
 
   bench("full scan with post-filter", async () => {

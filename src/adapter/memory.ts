@@ -1,5 +1,5 @@
 import { matchesWhere } from "../query/predicate"
-import { queryRangeContains } from "../query/range"
+import { compareQueryKeys, queryRangeContains } from "../query/range"
 import type {
   ID,
   QueryCondition,
@@ -34,6 +34,11 @@ function decodeIndexKey(key: string): QueryKey {
   }
 }
 
+interface SortedIndexKey {
+  encoded: string
+  value: QueryKey
+}
+
 export class MemoryAdapter implements StorageAdapter {
   readonly name = "memory"
 
@@ -53,6 +58,9 @@ export class MemoryAdapter implements StorageAdapter {
    */
   #indexes = new Map<string, Map<string, Map<string, Set<ID>>>>()
 
+  /** Lazily sorted distinct keys for range queries; writes invalidate a field's cache. */
+  #sortedIndexKeys = new Map<string, Map<string, SortedIndexKey[]>>()
+
   /**
    * Records that could not be indexed (a boolean, `null`, object or array in an
    * indexed field is not a valid IndexedDB key). While a collection/field has
@@ -64,6 +72,7 @@ export class MemoryAdapter implements StorageAdapter {
     this.#connected = true
     this.#uniqueIndexes.clear()
     this.#indexes.clear()
+    this.#sortedIndexKeys.clear()
     this.#unindexable.clear()
 
     if (schema?.collections) {
@@ -120,6 +129,7 @@ export class MemoryAdapter implements StorageAdapter {
     this.#meta.clear()
     this.#uniqueIndexes.clear()
     this.#indexes.clear()
+    this.#sortedIndexKeys.clear()
     this.#unindexable.clear()
     this.#connected = false
   }
@@ -150,7 +160,10 @@ export class MemoryAdapter implements StorageAdapter {
         } else {
           const bucket = buckets.get(key)
           bucket?.delete(id)
-          if (bucket?.size === 0) buckets.delete(key)
+          if (bucket?.size === 0) {
+            buckets.delete(key)
+            this.#invalidateSortedIndexKeys(collection, field)
+          }
         }
       }
 
@@ -163,11 +176,63 @@ export class MemoryAdapter implements StorageAdapter {
           if (!bucket) {
             bucket = new Set()
             buckets.set(key, bucket)
+            this.#invalidateSortedIndexKeys(collection, field)
           }
           bucket.add(id)
         }
       }
     }
+  }
+
+  #invalidateSortedIndexKeys(collection: string, field: string): void {
+    const cached = this.#sortedIndexKeys.get(collection)
+    cached?.delete(field)
+    if (cached?.size === 0) this.#sortedIndexKeys.delete(collection)
+  }
+
+  #getSortedIndexKeys(
+    collection: string,
+    field: string,
+    buckets: Map<string, Set<ID>>,
+  ): SortedIndexKey[] {
+    let fields = this.#sortedIndexKeys.get(collection)
+    if (!fields) {
+      fields = new Map()
+      this.#sortedIndexKeys.set(collection, fields)
+    }
+
+    let sorted = fields.get(field)
+    if (!sorted) {
+      sorted = [...buckets.keys()]
+        .map((encoded) => ({ encoded, value: decodeIndexKey(encoded) }))
+        .sort((a, b) => compareQueryKeys(a.value, b.value))
+      fields.set(field, sorted)
+    }
+    return sorted
+  }
+
+  #lowerBound(keys: SortedIndexKey[], value: QueryKey, open: boolean): number {
+    let low = 0
+    let high = keys.length
+    while (low < high) {
+      const mid = low + ((high - low) >> 1)
+      const compared = compareQueryKeys(keys[mid]!.value, value)
+      if (compared < 0 || (open && compared === 0)) low = mid + 1
+      else high = mid
+    }
+    return low
+  }
+
+  #upperBound(keys: SortedIndexKey[], value: QueryKey, open: boolean): number {
+    let low = 0
+    let high = keys.length
+    while (low < high) {
+      const mid = low + ((high - low) >> 1)
+      const compared = compareQueryKeys(keys[mid]!.value, value)
+      if (compared < 0 || (!open && compared === 0)) low = mid + 1
+      else high = mid
+    }
+    return low
   }
 
   #adjustUnindexable(collection: string, field: string, delta: number): void {
@@ -397,10 +462,30 @@ export class MemoryAdapter implements StorageAdapter {
       const exact = buckets.get(encodeIndexKey(range.lower) ?? "")
       if (exact) for (const id of exact) ids.add(id)
     } else {
-      // Ranges walk the distinct keys (cheap: key comparison, not record copies).
-      for (const [key, bucket] of buckets) {
-        if (!queryRangeContains(range, decodeIndexKey(key))) continue
+      // Walk only the matching key span. The previous Map traversal compared
+      // every distinct key for every range query (20k keys made a one-row range
+      // slower than a scan). Cache sorted distinct keys and binary-search bounds;
+      // writes invalidate this small cache only when a key bucket appears/disappears.
+      const sorted = this.#getSortedIndexKeys(collection, indexName, buckets)
+      const start =
+        range.lower === undefined ? 0 : this.#lowerBound(sorted, range.lower, range.lowerOpen)
+      const end =
+        range.upper === undefined
+          ? sorted.length
+          : this.#upperBound(sorted, range.upper, range.upperOpen)
+      let candidateCount = 0
+      for (let i = start; i < end; i++) {
+        const bucket = buckets.get(sorted[i]!.encoded)
+        if (!bucket) continue
+        candidateCount += bucket.size
         for (const id of bucket) ids.add(id)
+      }
+
+      // For broad ranges, random Map lookups and Set construction cost more
+      // than a sequential scan. This is only safe when the range is the whole
+      // filter set; post-filters may make a broad index range selective again.
+      if (postFilters.length === 0 && candidateCount >= store.size * 0.4) {
+        return this.#scanWithFilters(collection, indexName, range, postFilters)
       }
     }
 
