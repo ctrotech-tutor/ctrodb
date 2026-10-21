@@ -45,6 +45,13 @@ for (const file of requiredFiles) {
   }
 }
 
+// Tools (`npm ls`, bundler plugins, licence scanners) resolve the package
+// manifest through the `exports` map; without this subpath they get
+// ERR_PACKAGE_PATH_NOT_EXPORTED instead of metadata.
+if (pkg.exports?.["./package.json"] !== "./package.json") {
+  failures.push('exports is missing "./package.json": tools cannot read the manifest')
+}
+
 const runtime = await import(new URL("dist/index.mjs", root).href)
 if (runtime.VERSION !== pkg.version) {
   failures.push(`runtime VERSION (${runtime.VERSION}) !== package.json (${pkg.version})`)
