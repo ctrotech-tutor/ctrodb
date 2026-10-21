@@ -11,6 +11,34 @@ import type { CtroDBPlugin, WriteContext } from "../types"
  * The per-hook argument shapes are explicit so plugin implementations get
  * precise types instead of a variadic `unknown[]`.
  */
+/**
+ * Run an "after" hook without letting a plugin failure corrupt the operation.
+ *
+ * By the time these hooks run the write is already durable, so rejecting the
+ * caller's promise would report a successful write as failed (and invite a
+ * retry that duplicates it). Failures are reported to the console and, when
+ * available, forwarded to `onError` so applications can observe them.
+ */
+export async function runAfterHook(
+  plugins: CtroDBPlugin[],
+  hookName: keyof CtroDBPlugin,
+  args: unknown[],
+  onError?: (error: Error, plugin: string) => void,
+): Promise<void> {
+  for (const plugin of plugins) {
+    const hook = plugin[hookName]
+    if (typeof hook !== "function") continue
+    try {
+      await runHook([plugin], hookName, ...args)
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error))
+      const name = (plugin as { name?: string }).name ?? "unknown"
+      if (onError) onError(normalized, name)
+      else console.error(`[ctrodb] plugin "${name}" failed in ${String(hookName)}:`, normalized)
+    }
+  }
+}
+
 export async function runHook(
   plugins: CtroDBPlugin[],
   hookName: keyof CtroDBPlugin,

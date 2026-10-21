@@ -34,6 +34,28 @@ browser storage globals. Both changes were driven by the Phase 1 audit
   from the manifest; it previously reported `1.3.0` while the package was
   `1.4.0`.
 
+- **Duplicate ids and unique indexes behave the same on every adapter (H-06).**
+  The memory adapter overwrote an existing record on `create()` while IndexedDB
+  threw, and it ignored `unique: true` indexes entirely. Both adapters now
+  reject duplicates, and `Collection.create()` normalises the message to
+  `Record "<id>" already exists in "<collection>"` /
+  `Unique constraint failed in "<collection>"`.
+- **A failing "after" hook no longer fails a committed write (H-09).** The
+  write is already durable when these hooks run; failures are logged (and
+  forwarded to a custom `onError`) instead of rejecting the caller and
+  inviting a duplicate retry.
+- **FTS indexing failures are no longer unhandled rejections (H-10).** The
+  indexing hooks are awaited by the write path instead of firing and
+  forgetting.
+- **A blocked IndexedDB upgrade rejects instead of hanging forever (H-11).**
+  The error explains that another tab holds the database open.
+- **Indexes added to the schema are created on upgrade (H-12).** Previously
+  they were only created together with a brand-new store, so adding an index
+  to an existing collection silently did nothing.
+- **`client-wins` no longer drops a change the server rejected (H-15).** It
+  stays queued and is retried, and becomes an explicit `failed` entry after 3
+  rejected attempts rather than diverging silently.
+
 ### Added
 - `QueryRange`, `QueryKey`, `WriteContext` and `WriteOrigin` public types.
 - `createQueryRange`, `equalityRange`, `queryRangeContains`, `compareQueryKeys`
@@ -44,9 +66,18 @@ browser storage globals. Both changes were driven by the Phase 1 audit
   browser storage globals), which is what catches regressions of the Node
   failures above.
 - `npm run typecheck:tests`, `npm run verify`, and `tsconfig.tests.json`.
+- `npm run typecheck:smoke` — type-checks a consumer against the *built*
+  declarations, which is what catches packaging regressions such as two
+  incompatible `Database` types.
 - `react` is declared as an optional peer dependency.
 
 ### Changed
+- `ctrodb/react` now shares one type identity with `ctrodb` (H-13). The React
+  declarations import `Database` et al. from the root entry instead of
+  redeclaring them, so `DatabaseProvider` accepts any `Database` created
+  through the main entry point. Verified by a consumer type-check in CI.
+- `Collection.create()` with an id that already exists now rejects on both
+  adapters. Previously the memory adapter silently overwrote the record.
 - `Collection.create/update/delete/deleteMany/put` accept an optional internal
   `WriteContext` argument. Public call signatures are unchanged.
 - `StorageAdapter.scanIndex` and `QueryPlan.range` are typed with `QueryRange`

@@ -12,7 +12,7 @@ import type {
   StorageAdapter,
   WriteContext,
 } from "./types"
-import { runHook } from "./utils/plugin-hooks"
+import { runAfterHook, runHook } from "./utils/plugin-hooks"
 import { LOCAL_WRITE } from "./write-context"
 
 interface DatabaseShim {
@@ -88,10 +88,35 @@ export class Collection<T extends Record<string, unknown>> {
       context,
     )) as Record<string, unknown>
 
-    const record = (await this.#adapter.create(this.name, processed)) as T
+    let record: T
+    try {
+      record = (await this.#adapter.create(this.name, processed)) as T
+    } catch (error) {
+      // Normalise adapter-specific failures (IndexedDB throws ConstraintError,
+      // the memory adapter throws its own message) so callers can rely on one
+      // contract no matter which adapter is in use (audit H-06).
+      const message = error instanceof Error ? error.message : String(error)
+      const isDuplicate =
+        (error instanceof Error && error.name === "ConstraintError") ||
+        /already exists|unique constraint/i.test(message)
+
+      if (isDuplicate) {
+        // Distinguish the two constraint families, because they need different
+        // fixes in application code. The extra read only happens on failure.
+        const idTaken = (await this.#adapter.findById(this.name, processed.id as ID)) !== undefined
+        const normalized = new Error(
+          idTaken
+            ? `Record "${String(processed.id)}" already exists in "${this.name}"`
+            : `Unique constraint failed in "${this.name}": ${message}`,
+        )
+        normalized.cause = error
+        throw normalized
+      }
+      throw error
+    }
     const model = this._toModel(record)
 
-    await runHook(this.#plugins, "onAfterCreate", this.name, record, context)
+    await runAfterHook(this.#plugins, "onAfterCreate", [this.name, record, context])
 
     const event: ChangeEvent = {
       type: "create",
@@ -142,7 +167,7 @@ export class Collection<T extends Record<string, unknown>> {
     const updated = (await this.#adapter.update(this.name, id, processed)) as T
     const model = this._toModel(updated)
 
-    await runHook(this.#plugins, "onAfterUpdate", this.name, id, updated, existing, context)
+    await runAfterHook(this.#plugins, "onAfterUpdate", [this.name, id, updated, existing, context])
 
     const event: ChangeEvent = {
       type: "update",
@@ -164,7 +189,7 @@ export class Collection<T extends Record<string, unknown>> {
 
     await this.#adapter.delete(this.name, id)
 
-    await runHook(this.#plugins, "onAfterDelete", this.name, id, existing, context)
+    await runAfterHook(this.#plugins, "onAfterDelete", [this.name, id, existing, context])
 
     const event: ChangeEvent = {
       type: "delete",
@@ -188,7 +213,7 @@ export class Collection<T extends Record<string, unknown>> {
 
     for (const id of ids) {
       const existing = existingMap.get(id)
-      await runHook(this.#plugins, "onAfterDelete", this.name, id, existing, context)
+      await runAfterHook(this.#plugins, "onAfterDelete", [this.name, id, existing, context])
 
       const event: ChangeEvent = {
         type: "delete",

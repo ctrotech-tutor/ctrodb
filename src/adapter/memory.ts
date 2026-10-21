@@ -1,5 +1,12 @@
 import { queryRangeContains } from "../query/range"
-import type { ID, QueryCondition, QueryRange, StorageAdapter, TransactionContext } from "../types"
+import type {
+  ID,
+  QueryCondition,
+  QueryRange,
+  SchemaConfig,
+  StorageAdapter,
+  TransactionContext,
+} from "../types"
 
 export class MemoryAdapter implements StorageAdapter {
   readonly name = "memory"
@@ -8,18 +15,23 @@ export class MemoryAdapter implements StorageAdapter {
   #counters = new Map<string, number>()
   #meta = new Map<string, unknown>()
   #connected = false
+  /** Unique index fields per collection, mirroring what IndexedDB enforces. */
+  #uniqueIndexes = new Map<string, string[]>()
 
-  async connect(
-    _name: string,
-    schema: { collections: Record<string, unknown> } | null,
-  ): Promise<void> {
+  async connect(_name: string, schema: SchemaConfig | null): Promise<void> {
     this.#connected = true
+    this.#uniqueIndexes.clear()
+
     if (schema?.collections) {
-      for (const name of Object.keys(schema.collections)) {
+      for (const [name, collectionSchema] of Object.entries(schema.collections)) {
         if (!this.#data.has(name)) {
           this.#data.set(name, new Map())
           this.#counters.set(name, 1)
         }
+        const unique = (collectionSchema.indexes ?? [])
+          .filter((index) => index.unique)
+          .map((index) => index.field)
+        if (unique.length > 0) this.#uniqueIndexes.set(name, unique)
       }
     }
   }
@@ -28,7 +40,37 @@ export class MemoryAdapter implements StorageAdapter {
     this.#data.clear()
     this.#counters.clear()
     this.#meta.clear()
+    this.#uniqueIndexes.clear()
     this.#connected = false
+  }
+
+  /**
+   * Reject a write that would violate a declared unique index.
+   *
+   * IndexedDB enforces this natively; without the same check the memory
+   * adapter silently accepted duplicates, so code that passed in Node failed
+   * in the browser (audit H-06).
+   */
+  #assertUnique(collection: string, candidate: Record<string, unknown>, ignoreId?: ID): void {
+    const uniqueFields = this.#uniqueIndexes.get(collection)
+    if (!uniqueFields || uniqueFields.length === 0) return
+
+    const store = this.#data.get(collection)
+    if (!store) return
+
+    for (const field of uniqueFields) {
+      const value = candidate[field]
+      if (value === undefined || value === null) continue
+
+      for (const [id, record] of store) {
+        if (ignoreId !== undefined && String(id) === String(ignoreId)) continue
+        if (record[field] === value) {
+          throw new Error(
+            `Unique constraint failed on "${collection}.${field}": value ${JSON.stringify(value)} already exists`,
+          )
+        }
+      }
+    }
   }
 
   isConnected(): boolean {
@@ -48,7 +90,14 @@ export class MemoryAdapter implements StorageAdapter {
       )
     }
 
+    if (store.has(id)) {
+      // IndexedDB's `add()` throws ConstraintError here; overwriting would
+      // silently destroy the existing record (audit H-06).
+      throw new Error(`Record "${id}" already exists in "${collection}"`)
+    }
+
     const record = { id, ...input }
+    this.#assertUnique(collection, record)
     store.set(id, record)
     return { ...record }
   }
@@ -76,6 +125,7 @@ export class MemoryAdapter implements StorageAdapter {
     const record = store.get(id)
     if (!record) throw new Error(`Record "${id}" not found in "${collection}"`)
     const updated = { ...record, ...changes }
+    this.#assertUnique(collection, updated, id)
     store.set(id, updated)
     return { ...updated }
   }

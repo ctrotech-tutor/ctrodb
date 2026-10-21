@@ -26,8 +26,8 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsup",
-    "build:verify": "npm run build && node scripts/verify-package.mjs",
+    "build": "tsup && node scripts/generate-react-dts.mjs",
+    "build:verify": "npm run build && node scripts/verify-package.mjs && npm run typecheck:smoke",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -39,7 +39,8 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "prepublishOnly": "npm run build && npm test",
-    "verify": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run build && node scripts/verify-package.mjs && npm test"
+    "verify": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run build && node scripts/verify-package.mjs && npm run typecheck:smoke && npm test",
+    "typecheck:smoke": "tsc -p scripts/type-smoke/tsconfig.json"
   },
   "keywords": [
     "ctrodb",

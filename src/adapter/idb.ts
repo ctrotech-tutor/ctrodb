@@ -40,58 +40,93 @@ function toIDBKeyRange(range: QueryRange | undefined): IDBKeyRange | undefined {
 function openDB(
   dbName: string,
   version: number,
-  onUpgrade: (db: IDBDatabase, oldVersion: number) => void,
+  onUpgrade: (db: IDBDatabase, oldVersion: number, tx: IDBTransaction) => void,
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(dbName, version)
 
     request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
-      onUpgrade(request.result, event.oldVersion)
+      // `request.transaction` is the versionchange transaction, and it is the
+      // only handle that can modify existing stores (e.g. add an index).
+      const tx = request.transaction
+      if (!tx) {
+        throw new Error(`[ctrodb] Upgrade of "${dbName}" ran without a versionchange transaction`)
+      }
+      onUpgrade(request.result, event.oldVersion, tx)
     }
 
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
     request.onblocked = () => {
-      console.warn(`[ctrodb] Database "${dbName}" blocked. Close other tabs using this database.`)
+      // Do not leave the caller hanging: a blocked upgrade cannot complete
+      // until every other connection to this database is closed, so report it
+      // with an actionable message instead of waiting forever.
+      reject(
+        new Error(
+          `[ctrodb] Opening "${dbName}" is blocked by another connection (usually another tab). ` +
+            "Close other tabs running this app, then retry.",
+        ),
+      )
     }
   })
 }
 
 function createMigrationHandler(schema: SchemaConfig | null) {
-  return function onUpgrade(db: IDBDatabase, _oldVersion: number): void {
+  return function onUpgrade(db: IDBDatabase, _oldVersion: number, tx: IDBTransaction): void {
     if (!schema) return
+
+    const syncIndexes = (
+      store: IDBObjectStore,
+      definitions: readonly { field: string; unique?: boolean }[] | undefined,
+    ): void => {
+      for (const indexDef of definitions ?? []) {
+        const desiredUnique = indexDef.unique ?? false
+        const existing = store.indexNames.contains(indexDef.field)
+          ? store.index(indexDef.field)
+          : null
+
+        if (existing) {
+          // A unique flag change requires a rebuild; the data itself is kept.
+          if (existing.unique === desiredUnique) continue
+          store.deleteIndex(indexDef.field)
+        }
+
+        try {
+          store.createIndex(indexDef.field, indexDef.field, { unique: desiredUnique })
+        } catch (error) {
+          // e.g. an existing index with the same name on a different keyPath
+          console.warn(
+            `[ctrodb] Could not create index "${indexDef.field}" on "${store.name}":`,
+            error,
+          )
+        }
+      }
+    }
 
     for (const [collectionName, collectionSchema] of Object.entries(schema.collections)) {
       if (!db.objectStoreNames.contains(collectionName)) {
         const store = db.createObjectStore(collectionName, {
           keyPath: "id",
         })
-
-        if (collectionSchema.indexes) {
-          for (const indexDef of collectionSchema.indexes) {
-            store.createIndex(indexDef.field, indexDef.field, {
-              unique: indexDef.unique || false,
-            })
-          }
-        }
+        syncIndexes(store, collectionSchema.indexes)
+        continue
       }
+
+      // The store already exists: reconcile indexes so schema additions take
+      // effect on the next upgrade instead of being silently ignored.
+      syncIndexes(tx.objectStore(collectionName), collectionSchema.indexes)
     }
 
     if (schema.pluginStoreNames) {
       for (const entry of schema.pluginStoreNames) {
         const storeName = typeof entry === "string" ? entry : entry.name
+        const config = typeof entry === "string" ? null : (entry as PluginStoreConfig)
+
         if (!db.objectStoreNames.contains(storeName)) {
           const store = db.createObjectStore(storeName, { keyPath: "id" })
-          if (typeof entry !== "string") {
-            const config = entry as PluginStoreConfig
-            if (config.indexes) {
-              for (const indexDef of config.indexes) {
-                store.createIndex(indexDef.field, indexDef.field, {
-                  unique: indexDef.unique || false,
-                })
-              }
-            }
-          }
+          syncIndexes(store, config?.indexes)
+        } else if (config?.indexes) {
+          syncIndexes(tx.objectStore(storeName), config.indexes)
         }
       }
     }

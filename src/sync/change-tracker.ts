@@ -152,10 +152,11 @@ export class ChangeTracker {
     } as Record<string, unknown>)
   }
 
-  async markPending(id: string): Promise<void> {
+  async markPending(id: string, options?: { retries?: number }): Promise<void> {
     await this.#adapter.update(this.storeName, id, {
       status: "pending",
       updatedAt: new Date().toISOString(),
+      ...(options?.retries !== undefined ? { retries: options.retries } : {}),
     } as Record<string, unknown>)
   }
 
