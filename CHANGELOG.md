@@ -3,6 +3,68 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.11.0] - 2026-10-21
+
+### Added
+- **`Collection.createMany(records)` — atomic batch inserts.**
+
+  ```typescript
+  const todos = await db.collection("todos").createMany([{ text: "a" }, { text: "b" }])
+  ```
+
+  It is a drop-in for a loop, not a different contract: validation and defaults
+  run for the whole batch before anything else, then `onBeforeCreate` runs per
+  record, one `create` event is emitted per record (so
+  `db.on()`, `collection.onChange()` and `useQuery()` see the same sequence), and
+  the result is the models in input order.
+
+  The difference is atomicity and cost. A batch that fails validation, repeats an
+  id, or violates a unique constraint writes **nothing** — the loop would leave
+  the records before the failure behind. The batch is written as one adapter
+  operation (one IndexedDB transaction; one index write for the whole batch):
+
+  | 400 records, IndexedDB + `ftsPlugin()` | per record | `createMany()` |
+  |---|---|---|
+  | total | 268 ms | **55 ms** (4.8x) |
+  | per record | 669 µs | **138 µs** |
+
+  Without the full-text plugin the same comparison is 4.6x (172 µs → 37 µs).
+  On the in-memory adapter the difference is small — there is no transaction to
+  save — so this is a durable-path optimisation; `createMany` was measured at
+  1.1-2.4x there depending on the batch size, and is not claimed to be more.
+
+- **`StorageAdapter.createMany?(collection, records)`** — optional, all-or-nothing.
+  Adapters without it keep working through a per-record fallback (`createMany`
+  then is **not** atomic, which is documented).
+- **`CtroDBPlugin.onAfterCreateMany?(collection, records, context)`** — one call
+  per batch for plugins that can index many records at once. A plugin that
+  implements it is called **instead of** `onAfterCreate` for that batch, so an
+  index is never written twice; plugins that only implement the singular hook
+  keep receiving one call per record. Dispatch is per plugin, so batched and
+  non-batched plugins can coexist.
+- **`FTSIndexer.indexRecords()`** — indexes a batch with one adapter operation,
+  falling back to idempotent per-posting writes when a posting already exists.
+
+### Notes
+- Ids are generated per record, so the batch does not need to be pre-numbered.
+- A batch containing the same id twice is rejected before the adapter is touched,
+  with the index of the offending record in the message.
+- `createMany([])` resolves to `[]` without emitting anything.
+
+### Verification
+- `tests/integration/create-many.test.ts` — 34 tests on **both** adapters:
+  order, generated and provided ids, defaults, one event per record, collection
+  listeners, empty batch, validation failure writes nothing, id collision writes
+  nothing and names the record, intra-batch id duplicates rejected before the
+  adapter call, unique-field collisions inside the batch and against stored rows,
+  a mid-batch adapter failure, bulk vs singular hook dispatch, an invalid batch
+  running no before-hook at all, idempotent re-indexing, the per-record fallback,
+  and that both shipped adapters implement the capability.
+- The batching claim is structural, not just timing: a test asserts the whole
+  batch produces exactly one `adapter.createMany` call and no `adapter.create`.
+- `tests/benchmarks/core.bench.ts` gained `create x100 (loop)` vs `createMany x100`.
+- `npm run verify` — 681 tests / 41 files.
+
 ## [1.10.0] - 2026-10-21
 
 ### Added

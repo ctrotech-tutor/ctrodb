@@ -98,6 +98,14 @@ export function TodoList() {
   )
 }
 
+// README → Batch inserts.
+export async function batchExamples() {
+  const todos = await db
+    .collection("todos")
+    .createMany([{ text: "a" }, { text: "b" }, { text: "c" }])
+  return todos.map((todo) => todo.id)
+}
+
 // README → Search: substring vs tokenised.
 export async function searchExamples() {
   const substring = await db.collection("posts").query().search("title", "quick").fetch()

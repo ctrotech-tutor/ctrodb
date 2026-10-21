@@ -150,6 +150,15 @@ export interface CtroDBPlugin {
   onCollectionInit?(collection: unknown): void
   onBeforeCreate?(collection: string, data: unknown, context?: WriteContext): unknown
   onAfterCreate?(collection: string, record: unknown, context?: WriteContext): void
+  /**
+   * Called after a batch insert, once, with every record.
+   *
+   * Plugins that maintain an index should implement this instead of relying on
+   * `onAfterCreate` per record: the batch can then be written in one operation
+   * too. A plugin that implements this is called **instead of** `onAfterCreate`
+   * for each record of the batch, so an index is never written twice.
+   */
+  onAfterCreateMany?(collection: string, records: unknown[], context?: WriteContext): void
   onBeforeUpdate?(collection: string, id: ID, changes: unknown, context?: WriteContext): unknown
   onAfterUpdate?(
     collection: string,
@@ -198,6 +207,17 @@ export interface StorageAdapter {
   getSchemaVersion(): Promise<number>
   setSchemaVersion(version: number): Promise<void>
   create(collection: string, data: unknown): Promise<unknown>
+  /**
+   * Insert several records as one operation.
+   *
+   * Optional, and additive: callers fall back to one `create` per record. An
+   * adapter that can write them in a single transaction must do so, because
+   * that is the entire point — on IndexedDB each `create` opens its own
+   * transaction, and transaction setup dominates the cost of a small write.
+   * All-or-nothing: if any record fails (duplicate id, unique constraint) the
+   * adapter must leave the store untouched.
+   */
+  createMany?(collection: string, records: unknown[]): Promise<unknown[]>
   findById(collection: string, id: ID): Promise<unknown>
   /**
    * Read several records in one operation.

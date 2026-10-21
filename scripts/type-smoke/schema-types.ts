@@ -105,6 +105,17 @@ export async function readsAndRelations() {
   await post.load("nope")
 }
 
+export async function batches() {
+  const created = await posts.createMany([{ title: "one" }, { title: "two", views: 3 }])
+  const title: string = created[0]?.title ?? ""
+  void title
+
+  // @ts-expect-error `title` is required on every record of the batch
+  await posts.createMany([{ title: "ok" }, { views: 1 }])
+  // @ts-expect-error `views` is a number
+  await posts.createMany([{ title: "x", views: "three" }])
+}
+
 export function queries() {
   posts.query().where("views", ">", 10)
   posts.query().where("title", "hello")
