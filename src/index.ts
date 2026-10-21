@@ -1,5 +1,3 @@
-export const VERSION = "1.3.0"
-
 export { createAdapter, IndexedDBAdapter, MemoryAdapter } from "./adapter/index"
 export { Collection } from "./collection"
 export type { DatabaseConfig } from "./database"
@@ -25,6 +23,13 @@ export {
   validationPlugin,
 } from "./plugins/index"
 export { QueryBuilder, QueryExecutor, QueryPlanner } from "./query/index"
+export {
+  compareQueryKeys,
+  createQueryRange,
+  equalityRange,
+  isQueryKey,
+  queryRangeContains,
+} from "./query/range"
 export { Signal } from "./reactive/signal"
 export { Schema } from "./schema"
 export type {
@@ -51,7 +56,6 @@ export type {
   SyncTransport,
   WsTransportConfig,
 } from "./sync/index"
-
 // Sync
 export {
   ChangeTracker,
@@ -82,8 +86,10 @@ export type {
   IndexDefinition,
   LogLevel,
   QueryCondition,
+  QueryKey,
   QueryOperator,
   QueryPlan,
+  QueryRange,
   QueryStrategy,
   RelationDefinition,
   RelationType,
@@ -91,4 +97,7 @@ export type {
   SortSpec,
   StorageAdapter,
   TransactionContext,
+  WriteContext,
+  WriteOrigin,
 } from "./types"
+export { VERSION } from "./version"

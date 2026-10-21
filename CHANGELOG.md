@@ -2,6 +2,57 @@
 
 All notable changes to ctrodb will be documented in this file.
 
+## [1.5.0] - 2026-10-21
+
+Sync pull is now a safe, observable write path, and the core no longer depends on
+browser storage globals. Both changes were driven by the Phase 1 audit
+(`docs/audit/phase-1-audit.md`); see the finding IDs below.
+
+### Fixed
+- **Sync pull no longer overwrites newer local edits (C-01).** A queued local
+  change is only superseded when the remote change is newer (ties go to the
+  remote, matching the LWW resolver); otherwise the remote snapshot is treated
+  as a replay and skipped. The queue is snapshotted before the push phase, so a
+  stale server echo cannot roll back data this client just pushed.
+- **Applied remote changes are real writes (H-14).** Pull now goes through
+  `Collection`, so schema validation, plugin hooks, full-text indexing and
+  change events all run. Reactive queries (`useQuery`, `db.on`) update for
+  synced data, and records that fail validation abort the pull with an `error`
+  event instead of being stored.
+- **Unacknowledged pushes are rolled back to `pending`.** Changes can no longer
+  be stranded in `syncing` when a transport omits them from its response.
+- **Indexed queries and the sync engine work on Node (H-01, H-02).** The query
+  planner and change tracker no longer call `IDBKeyRange`; ranges are described
+  with a storage-neutral `QueryRange` and only the IndexedDB adapter converts
+  them.
+- **`!=` on an indexed field returned incorrect rows (H-07).** Non-contiguous
+  and non-key conditions now fall back to a scan, so the presence of an index
+  can never change a result set.
+- **Indexed boolean/object fields threw `DataError`.** Such fields are excluded
+  from index-driven scans on both adapters.
+- **`VERSION` now matches `package.json` (L-01).** It is injected at build time
+  from the manifest; it previously reported `1.3.0` while the package was
+  `1.4.0`.
+
+### Added
+- `QueryRange`, `QueryKey`, `WriteContext` and `WriteOrigin` public types.
+- `createQueryRange`, `equalityRange`, `queryRangeContains`, `compareQueryKeys`
+  and `isQueryKey` exported helpers for adapter authors.
+- Plugin hooks receive a trailing `context: { origin: "local" | "remote" }`
+  argument (backward compatible — existing hooks ignore it).
+- Two Vitest projects: `unit` (with `fake-indexeddb`) and `node-pure` (no
+  browser storage globals), which is what catches regressions of the Node
+  failures above.
+- `npm run typecheck:tests`, `npm run verify`, and `tsconfig.tests.json`.
+- `react` is declared as an optional peer dependency.
+
+### Changed
+- `Collection.create/update/delete/deleteMany/put` accept an optional internal
+  `WriteContext` argument. Public call signatures are unchanged.
+- `StorageAdapter.scanIndex` and `QueryPlan.range` are typed with `QueryRange`
+  instead of `IDBKeyRange` (`QueryRange` is structurally compatible with the
+  bound properties of `IDBKeyRange`).
+
 ## [1.4.0] - 2026-06-30
 
 ### Added

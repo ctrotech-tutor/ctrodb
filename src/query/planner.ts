@@ -1,4 +1,5 @@
 import type { CollectionSchema, IndexDefinition, QueryCondition, QueryPlan } from "../types"
+import { createQueryRange, isQueryKey } from "./range"
 
 export class QueryPlanner {
   plan(
@@ -32,10 +33,12 @@ export class QueryPlanner {
 
   #planSingleGroup(
     conditions: QueryCondition[],
-    _collectionSchema: CollectionSchema | null,
+    collectionSchema: CollectionSchema | null,
     indexes: IndexDefinition[],
   ): QueryPlan {
-    const idEquality = conditions.find((c) => c.field === "id" && c.op === "==")
+    const idEquality = conditions.find(
+      (c) => c.field === "id" && c.op === "==" && isQueryKey(c.value),
+    )
     if (idEquality) {
       const remaining = conditions.filter((c) => c !== idEquality)
       return {
@@ -80,15 +83,29 @@ export class QueryPlanner {
       }
     }
 
-    const bestCondition = this.#selectBestIndexedCondition(indexedConditions, indexes)
+    const bestCondition = this.#selectBestIndexedCondition(
+      indexedConditions,
+      indexes,
+      collectionSchema,
+    )
+
+    // A condition may only drive an index scan when the adapter can express it
+    // as a contiguous key range. `!=`, booleans, null, objects and arrays can
+    // not: they fall back to a full scan so results are always correct.
+    const range = createQueryRange(bestCondition.op ?? "==", bestCondition.value)
+
+    if (!range) {
+      return {
+        strategy: "full_scan",
+        primaryConditions: [],
+        postFilterConditions: conditions,
+        groupType: "single",
+      }
+    }
+
     const remainingConditions = indexedConditions
       .filter((c) => c !== bestCondition)
       .concat(nonIndexedConditions)
-
-    let range: IDBKeyRange | undefined
-    if (bestCondition.op) {
-      range = this.#createKeyRange(bestCondition.op, bestCondition.value)
-    }
 
     return {
       strategy: "index_scan",
@@ -107,35 +124,27 @@ export class QueryPlanner {
   #selectBestIndexedCondition(
     conditions: QueryCondition[],
     indexes: IndexDefinition[],
+    collectionSchema: CollectionSchema | null,
   ): QueryCondition {
+    const fieldType = (field: string): string | undefined => collectionSchema?.fields[field]?.type
+
+    const isIndexable = (cond: QueryCondition): boolean => {
+      const type = fieldType(cond.field)
+      // Booleans and structured values are not valid IndexedDB keys.
+      if (type === "boolean" || type === "object" || type === "array") return false
+      return isQueryKey(cond.value)
+    }
+
     const getPriority = (cond: QueryCondition): number => {
+      if (!isIndexable(cond)) return 0
       const index = indexes.find((idx) => idx.field === cond.field)
       if (cond.op === "==") return index?.unique ? 5 : 4
       if (cond.op && [">", "<", ">=", "<="].includes(cond.op)) return 3
-      if (cond.op === "!=") return 1
-      return 0
+      return 1
     }
 
     return conditions.reduce((best, current) =>
       getPriority(current) > getPriority(best) ? current : best,
     )
-  }
-
-  #createKeyRange(op: string, value: unknown): IDBKeyRange | undefined {
-    if (value === undefined) return undefined
-    switch (op) {
-      case "==":
-        return IDBKeyRange.only(value as IDBValidKey)
-      case ">":
-        return IDBKeyRange.lowerBound(value as IDBValidKey, true)
-      case ">=":
-        return IDBKeyRange.lowerBound(value as IDBValidKey)
-      case "<":
-        return IDBKeyRange.upperBound(value as IDBValidKey, true)
-      case "<=":
-        return IDBKeyRange.upperBound(value as IDBValidKey)
-      default:
-        return undefined
-    }
   }
 }

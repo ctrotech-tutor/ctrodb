@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Database } from "../../../src/database"
-import { SyncEngine } from "../../../src/sync/sync-engine"
 import { ChangeTracker } from "../../../src/sync/change-tracker"
+import { SyncEngine } from "../../../src/sync/sync-engine"
 import type {
+  PullOptions,
+  PushOptions,
   SyncChangeRecord,
   SyncConflict,
   SyncEvent,
+  SyncPhase,
   SyncPluginConfig,
   SyncProgress,
   SyncPullResult,
   SyncPushResult,
   SyncTransport,
-  PushOptions,
-  PullOptions,
-  SyncPhase,
 } from "../../../src/sync/types"
 
 // ── Mock Transport ──
@@ -25,15 +25,14 @@ class MockTransport implements SyncTransport {
   connected = true
   pushCallCount = 0
   pullCallCount = 0
+  lastPushed: SyncChangeRecord[] = []
   pushFail: Error | null = null
   pullFail: Error | null = null
   connectFail: Error | null = null
 
-  async push(
-    _changes: SyncChangeRecord[],
-    _options?: PushOptions,
-  ): Promise<SyncPushResult> {
+  async push(changes: SyncChangeRecord[], _options?: PushOptions): Promise<SyncPushResult> {
     this.pushCallCount++
+    this.lastPushed = changes
     if (this.pushFail) throw this.pushFail
     return this.pushResult
   }
@@ -57,11 +56,14 @@ class MockTransport implements SyncTransport {
 
 // ── Helpers ──
 
-function makeEngine(
+async function makeEngine(
   overrides: Partial<SyncPluginConfig> & { transport?: SyncTransport } = {},
-): { engine: SyncEngine; db: Database; transport: MockTransport } {
+): Promise<{ engine: SyncEngine; db: Database; transport: MockTransport }> {
   const transport = (overrides.transport ?? new MockTransport()) as MockTransport
   const db = new Database({ adapter: "memory" })
+  // SyncEngine is only ever constructed by syncPlugin inside Database.connect().
+  // Its pull path writes through Collection, so tests must mirror that lifecycle.
+  await db.connect()
   const config: SyncPluginConfig = {
     transport,
     autoSync: false,
@@ -112,14 +114,14 @@ describe("SyncEngine", () => {
 
   describe("init", () => {
     it("connects the transport", async () => {
-      const { engine, transport } = makeEngine()
+      const { engine, transport } = await makeEngine()
       expect(transport.pushCallCount).toBe(0)
       await engine.init()
       // Transport is connected (no error)
     })
 
     it("restores lastPullCursor from metadata", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       const adapter = db._getAdapter()
       await adapter.setMetadata("sync:lastPullCursor", "cursor-123")
 
@@ -138,7 +140,7 @@ describe("SyncEngine", () => {
     })
 
     it("restores lastSyncAt from metadata", async () => {
-      const { engine, db } = makeEngine()
+      const { engine, db } = await makeEngine()
       const adapter = db._getAdapter()
       const ts = new Date().toISOString()
       await adapter.setMetadata("sync:lastSyncAt", ts)
@@ -152,7 +154,7 @@ describe("SyncEngine", () => {
     it("handles connect failure gracefully", async () => {
       const transport = new MockTransport()
       transport.connectFail = new Error("Connection refused")
-      const { engine } = makeEngine({ transport })
+      const { engine } = await makeEngine({ transport })
 
       await engine.init()
 
@@ -161,7 +163,7 @@ describe("SyncEngine", () => {
     })
 
     it("initializes the change tracker (resets stuck syncing)", async () => {
-      const { engine, db } = makeEngine()
+      const { engine, db } = await makeEngine()
       const adapter = db._getAdapter()
       const tracker = new ChangeTracker(adapter)
       const id = await tracker.append("create", "todos", "rec-1", { title: "stuck" })
@@ -178,7 +180,7 @@ describe("SyncEngine", () => {
     it("disconnects the transport", async () => {
       const transport = new MockTransport()
       const disconnectSpy = vi.spyOn(transport, "disconnect")
-      const { engine } = makeEngine({ transport })
+      const { engine } = await makeEngine({ transport })
 
       await engine.destroy()
 
@@ -186,7 +188,7 @@ describe("SyncEngine", () => {
     })
 
     it("stops auto-sync timer", async () => {
-      const { engine } = makeEngine({ autoSync: { intervalMs: 100 } })
+      const { engine } = await makeEngine({ autoSync: { intervalMs: 100 } })
       await engine.init()
 
       const clearSpy = vi.spyOn(globalThis, "clearInterval")
@@ -197,8 +199,8 @@ describe("SyncEngine", () => {
   })
 
   describe("status", () => {
-    it("returns initial status", () => {
-      const { engine } = makeEngine()
+    it("returns initial status", async () => {
+      const { engine } = await makeEngine()
       const status = engine.status
       expect(status.isSyncing).toBe(false)
       expect(status.lastSyncAt).toBeNull()
@@ -212,7 +214,7 @@ describe("SyncEngine", () => {
         conflicts: [],
         errors: [],
       }
-      const { engine } = makeEngine({ transport })
+      const { engine } = await makeEngine({ transport })
       await engine.init()
 
       const syncPromise = engine.sync()
@@ -226,7 +228,7 @@ describe("SyncEngine", () => {
 
   describe("sync — push", () => {
     it("pushes pending changes to transport", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       await seedChange(db, { type: "create", data: { title: "Hello" } })
 
@@ -236,7 +238,7 @@ describe("SyncEngine", () => {
     })
 
     it("skips push when no pending changes", async () => {
-      const { engine, transport } = makeEngine()
+      const { engine, transport } = await makeEngine()
       await engine.init()
 
       await engine.sync()
@@ -245,7 +247,7 @@ describe("SyncEngine", () => {
     })
 
     it("marks accepted changes as committed (cleaned up after sync)", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, { type: "create", data: { title: "Hello" } })
       transport.pushResult = {
@@ -265,7 +267,7 @@ describe("SyncEngine", () => {
     })
 
     it("marks errored changes as failed", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, { type: "create", data: { title: "Hello" } })
       transport.pushResult = {
@@ -284,7 +286,7 @@ describe("SyncEngine", () => {
     })
 
     it("reverts to pending on network error", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, { type: "create" })
       transport.pushFail = new Error("Network error")
@@ -298,7 +300,7 @@ describe("SyncEngine", () => {
     })
 
     it("handles partial results (some accepted, some errors)", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id1 = await seedChange(db, { type: "create", data: { n: 1 } })
       const id2 = await seedChange(db, { type: "create", data: { n: 2 } })
@@ -319,7 +321,7 @@ describe("SyncEngine", () => {
     })
 
     it("only pushes up to pushBatchSize changes per cycle", async () => {
-      const { engine, db, transport } = makeEngine({ pushBatchSize: 2 })
+      const { engine, db, transport } = await makeEngine({ pushBatchSize: 2 })
       await engine.init()
       await seedChange(db, { type: "create", data: { n: 1 } })
       await seedChange(db, { type: "create", data: { n: 2 } })
@@ -327,18 +329,20 @@ describe("SyncEngine", () => {
 
       await engine.sync()
 
-      // Only 2 out of 3 were pushed
+      // Exactly batchSize changes were sent this cycle…
+      expect(transport.lastPushed).toHaveLength(2)
+
+      // …and nothing is stranded: every change is still queued because this
+      // transport acknowledges nothing (accepted/conflicts/errors all empty).
       const adapter = db._getAdapter()
       const tracker = new ChangeTracker(adapter)
       const all = await tracker.getAll()
-      const syncingOrCommitted = all.filter(
-        (c) => c.status === "syncing" || c.status === "committed",
-      )
-      expect(syncingOrCommitted.length).toBe(2)
+      expect(all).toHaveLength(3)
+      expect(all.every((c) => c.status === "pending")).toBe(true)
     })
 
     it("is idempotent — concurrent sync calls are no-ops", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       await seedChange(db, { type: "create", data: { title: "Test" } })
       transport.pushResult = {
@@ -358,7 +362,7 @@ describe("SyncEngine", () => {
 
   describe("sync — push conflicts", () => {
     it("resolves conflicts with default LWW strategy", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, {
         type: "update",
@@ -386,12 +390,14 @@ describe("SyncEngine", () => {
 
       // Remote wins (LWW — remote timestamp is later)
       const adapter = db._getAdapter()
-      const record = (await adapter.findById("todos", "rec-1")) as Record<string, unknown> | undefined
+      const record = (await adapter.findById("todos", "rec-1")) as
+        | Record<string, unknown>
+        | undefined
       expect(record?.title).toBe("Remote")
     })
 
     it("resolves conflict and cleans up change", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, { type: "update", data: { title: "Local" } })
       transport.pushResult = {
@@ -423,7 +429,7 @@ describe("SyncEngine", () => {
 
   describe("sync — pull", () => {
     it("pulls changes from transport", async () => {
-      const { engine, transport } = makeEngine()
+      const { engine, transport } = await makeEngine()
       await engine.init()
 
       await engine.sync()
@@ -432,7 +438,7 @@ describe("SyncEngine", () => {
     })
 
     it("applies create changes locally", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       transport.pullResult = {
         changes: [
@@ -452,13 +458,15 @@ describe("SyncEngine", () => {
       await engine.sync()
 
       const adapter = db._getAdapter()
-      const record = (await adapter.findById("todos", "rec-new")) as Record<string, unknown> | undefined
+      const record = (await adapter.findById("todos", "rec-new")) as
+        | Record<string, unknown>
+        | undefined
       expect(record).toBeDefined()
       expect(record?.title).toBe("From Server")
     })
 
     it("applies update changes locally", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const adapter = db._getAdapter()
       await adapter.create("todos", { id: "rec-1", title: "Original" })
@@ -480,12 +488,14 @@ describe("SyncEngine", () => {
 
       await engine.sync()
 
-      const record = (await adapter.findById("todos", "rec-1")) as Record<string, unknown> | undefined
+      const record = (await adapter.findById("todos", "rec-1")) as
+        | Record<string, unknown>
+        | undefined
       expect(record?.title).toBe("Updated")
     })
 
     it("applies delete changes locally", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const adapter = db._getAdapter()
       await adapter.create("todos", { id: "rec-1", title: "Delete Me" })
@@ -512,7 +522,7 @@ describe("SyncEngine", () => {
     })
 
     it("is idempotent for delete on missing record", async () => {
-      const { engine, transport } = makeEngine()
+      const { engine, transport } = await makeEngine()
       await engine.init()
       transport.pullResult = {
         changes: [
@@ -533,7 +543,7 @@ describe("SyncEngine", () => {
     })
 
     it("paginates through multiple batches", async () => {
-      const { engine, db, transport } = makeEngine({ pullBatchSize: 2 })
+      const { engine, db, transport } = await makeEngine({ pullBatchSize: 2 })
       await engine.init()
 
       let callCount = 0
@@ -542,8 +552,22 @@ describe("SyncEngine", () => {
         if (callCount === 1) {
           return {
             changes: [
-              { id: "c1", collection: "todos", recordId: "r1", type: "create" as const, data: { n: 1 }, timestamp: "t1" },
-              { id: "c2", collection: "todos", recordId: "r2", type: "create" as const, data: { n: 2 }, timestamp: "t2" },
+              {
+                id: "c1",
+                collection: "todos",
+                recordId: "r1",
+                type: "create" as const,
+                data: { n: 1 },
+                timestamp: "t1",
+              },
+              {
+                id: "c2",
+                collection: "todos",
+                recordId: "r2",
+                type: "create" as const,
+                data: { n: 2 },
+                timestamp: "t2",
+              },
             ],
             cursor: "c2",
             hasMore: true,
@@ -551,7 +575,14 @@ describe("SyncEngine", () => {
         }
         return {
           changes: [
-            { id: "c3", collection: "todos", recordId: "r3", type: "create" as const, data: { n: 3 }, timestamp: "t3" },
+            {
+              id: "c3",
+              collection: "todos",
+              recordId: "r3",
+              type: "create" as const,
+              data: { n: 3 },
+              timestamp: "t3",
+            },
           ],
           cursor: "c3",
           hasMore: false,
@@ -562,13 +593,13 @@ describe("SyncEngine", () => {
 
       expect(callCount).toBe(2)
       const adapter = db._getAdapter()
-      expect((await adapter.findById("todos", "r1"))).toBeDefined()
-      expect((await adapter.findById("todos", "r2"))).toBeDefined()
-      expect((await adapter.findById("todos", "r3"))).toBeDefined()
+      expect(await adapter.findById("todos", "r1")).toBeDefined()
+      expect(await adapter.findById("todos", "r2")).toBeDefined()
+      expect(await adapter.findById("todos", "r3")).toBeDefined()
     })
 
     it("creates record if update arrives for nonexistent record", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       transport.pullResult = {
         changes: [
@@ -594,7 +625,7 @@ describe("SyncEngine", () => {
     })
 
     it("skips update when data is null", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const adapter = db._getAdapter()
       await adapter.create("todos", { id: "rec-1", title: "Keep me" })
@@ -622,7 +653,7 @@ describe("SyncEngine", () => {
 
   describe("sync — events", () => {
     it("emits events in order: push, pull, complete", async () => {
-      const { engine, transport } = makeEngine()
+      const { engine, transport } = await makeEngine()
       await engine.init()
       transport.pushResult = { accepted: [], conflicts: [], errors: [] }
 
@@ -637,7 +668,7 @@ describe("SyncEngine", () => {
     })
 
     it("emits error event on sync failure", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       await seedChange(db, { type: "create", data: { title: "Fail me" } })
       transport.pushFail = new Error("Transport failed")
@@ -654,7 +685,7 @@ describe("SyncEngine", () => {
     })
 
     it("emits conflict event when conflicts occur", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, { type: "update", data: { title: "Local" } })
       transport.pushResult = {
@@ -685,7 +716,7 @@ describe("SyncEngine", () => {
     })
 
     it("allows unsubscribe from events", async () => {
-      const { engine } = makeEngine()
+      const { engine } = await makeEngine()
       let count = 0
       const unsub = engine.onEvent(() => {
         count++
@@ -698,7 +729,7 @@ describe("SyncEngine", () => {
     })
 
     it("does not crash when subscriber throws", async () => {
-      const { engine } = makeEngine()
+      const { engine } = await makeEngine()
       engine.onEvent(() => {
         throw new Error("Subscriber error")
       })
@@ -707,7 +738,7 @@ describe("SyncEngine", () => {
     })
 
     it("includes progress in complete event", async () => {
-      const { engine, db, transport } = makeEngine()
+      const { engine, db, transport } = await makeEngine()
       await engine.init()
       const id = await seedChange(db, { type: "create", data: { title: "Test" } })
       transport.pushResult = {
@@ -780,8 +811,8 @@ describe("SyncEngine", () => {
       await engine.destroy()
     })
 
-    it("does nothing when autoSync is disabled", () => {
-      const { engine } = makeEngine()
+    it("does nothing when autoSync is disabled", async () => {
+      const { engine } = await makeEngine()
 
       // Should not throw
       engine.triggerSync()
@@ -810,8 +841,8 @@ describe("SyncEngine", () => {
       await engine.destroy()
     })
 
-    it("updates isConnected flag", () => {
-      const { engine } = makeEngine()
+    it("updates isConnected flag", async () => {
+      const { engine } = await makeEngine()
       engine.setConnected(true)
       expect(engine.status.isConnected).toBe(true)
 
@@ -875,7 +906,7 @@ describe("SyncEngine", () => {
 
   describe("getPendingCount / getFailedCount", () => {
     it("returns pending count from tracker", async () => {
-      const { engine, db } = makeEngine()
+      const { engine, db } = await makeEngine()
       await engine.init()
       await seedChange(db, { type: "create", data: { title: "A" } })
       await seedChange(db, { type: "create", data: { title: "B" } })
@@ -885,7 +916,7 @@ describe("SyncEngine", () => {
     })
 
     it("returns failed count from tracker", async () => {
-      const { engine, db } = makeEngine()
+      const { engine, db } = await makeEngine()
       await engine.init()
       const tracker = new ChangeTracker(db._getAdapter())
       const id = await tracker.append("create", "todos", "rec-1", { title: "Fail" })

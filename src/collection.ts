@@ -4,8 +4,16 @@ import type { QueryExecutor } from "./query/executor"
 import type { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
 import type { Schema } from "./schema"
-import type { ChangeEvent, CtroDBPlugin, ID, RelationDefinition, StorageAdapter } from "./types"
+import type {
+  ChangeEvent,
+  CtroDBPlugin,
+  ID,
+  RelationDefinition,
+  StorageAdapter,
+  WriteContext,
+} from "./types"
 import { runHook } from "./utils/plugin-hooks"
+import { LOCAL_WRITE } from "./write-context"
 
 interface DatabaseShim {
   readonly name: string
@@ -50,7 +58,16 @@ export class Collection<T extends Record<string, unknown>> {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   }
 
-  async create(data: Omit<T, "id"> & { id?: ID }): Promise<Model<T> & T> {
+  /**
+   * Insert a record.
+   *
+   * `context` is internal plumbing: the sync engine passes a remote write
+   * context so plugins can distinguish applied server data from local intent.
+   */
+  async create(
+    data: Omit<T, "id"> & { id?: ID },
+    context: WriteContext = LOCAL_WRITE,
+  ): Promise<Model<T> & T> {
     const raw = { ...data } as Record<string, unknown>
     if (raw.id === undefined) {
       raw.id = this.#generateId()
@@ -63,15 +80,18 @@ export class Collection<T extends Record<string, unknown>> {
       this.#schema.validate(this.name, processed)
     }
 
-    processed = (await runHook(this.#plugins, "onBeforeCreate", this.name, processed)) as Record<
-      string,
-      unknown
-    >
+    processed = (await runHook(
+      this.#plugins,
+      "onBeforeCreate",
+      this.name,
+      processed,
+      context,
+    )) as Record<string, unknown>
 
     const record = (await this.#adapter.create(this.name, processed)) as T
     const model = this._toModel(record)
 
-    await runHook(this.#plugins, "onAfterCreate", this.name, record)
+    await runHook(this.#plugins, "onAfterCreate", this.name, record, context)
 
     const event: ChangeEvent = {
       type: "create",
@@ -96,13 +116,24 @@ export class Collection<T extends Record<string, unknown>> {
     return this._toModels(records)
   }
 
-  async update(id: ID, changes: Partial<T>): Promise<Model<T> & T> {
+  async update(
+    id: ID,
+    changes: Partial<T>,
+    context: WriteContext = LOCAL_WRITE,
+  ): Promise<Model<T> & T> {
     const existing = (await this.#adapter.findById(this.name, id)) as T | undefined
     if (!existing) throw new Error(`Record "${id}" not found in collection "${this.name}"`)
 
-    const processed = (await runHook(this.#plugins, "onBeforeUpdate", this.name, id, {
-      ...changes,
-    })) as Record<string, unknown>
+    const processed = (await runHook(
+      this.#plugins,
+      "onBeforeUpdate",
+      this.name,
+      id,
+      {
+        ...changes,
+      },
+      context,
+    )) as Record<string, unknown>
 
     if (this.#schema) {
       this.#schema.validate(this.name, { ...existing, ...processed })
@@ -111,7 +142,7 @@ export class Collection<T extends Record<string, unknown>> {
     const updated = (await this.#adapter.update(this.name, id, processed)) as T
     const model = this._toModel(updated)
 
-    await runHook(this.#plugins, "onAfterUpdate", this.name, id, updated, existing)
+    await runHook(this.#plugins, "onAfterUpdate", this.name, id, updated, existing, context)
 
     const event: ChangeEvent = {
       type: "update",
@@ -126,14 +157,14 @@ export class Collection<T extends Record<string, unknown>> {
     return model
   }
 
-  async delete(id: ID): Promise<void> {
+  async delete(id: ID, context: WriteContext = LOCAL_WRITE): Promise<void> {
     const existing = (await this.#adapter.findById(this.name, id)) as T | undefined
 
-    await runHook(this.#plugins, "onBeforeDelete", this.name, id)
+    await runHook(this.#plugins, "onBeforeDelete", this.name, id, context)
 
     await this.#adapter.delete(this.name, id)
 
-    await runHook(this.#plugins, "onAfterDelete", this.name, id, existing)
+    await runHook(this.#plugins, "onAfterDelete", this.name, id, existing, context)
 
     const event: ChangeEvent = {
       type: "delete",
@@ -145,19 +176,19 @@ export class Collection<T extends Record<string, unknown>> {
     this.#db._emit(event)
   }
 
-  async deleteMany(ids: ID[]): Promise<void> {
+  async deleteMany(ids: ID[], context: WriteContext = LOCAL_WRITE): Promise<void> {
     const existingMap = new Map<ID, T>()
     for (const id of ids) {
       const record = (await this.#adapter.findById(this.name, id)) as T | undefined
       if (record) existingMap.set(id, record)
-      await runHook(this.#plugins, "onBeforeDelete", this.name, id)
+      await runHook(this.#plugins, "onBeforeDelete", this.name, id, context)
     }
 
     await this.#adapter.deleteMany(this.name, ids)
 
     for (const id of ids) {
       const existing = existingMap.get(id)
-      await runHook(this.#plugins, "onAfterDelete", this.name, id, existing)
+      await runHook(this.#plugins, "onAfterDelete", this.name, id, existing, context)
 
       const event: ChangeEvent = {
         type: "delete",
@@ -170,14 +201,14 @@ export class Collection<T extends Record<string, unknown>> {
     }
   }
 
-  async put(data: T & { id?: ID }): Promise<Model<T> & T> {
+  async put(data: T & { id?: ID }, context: WriteContext = LOCAL_WRITE): Promise<Model<T> & T> {
     if (data.id !== undefined) {
       const existing = await this.#adapter.findById(this.name, data.id)
       if (existing) {
-        return this.update(data.id, data as Partial<T>)
+        return this.update(data.id, data as Partial<T>, context)
       }
     }
-    return this.create(data as Omit<T, "id"> & { id?: ID })
+    return this.create(data as Omit<T, "id"> & { id?: ID }, context)
   }
 
   async count(): Promise<number> {

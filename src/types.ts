@@ -51,6 +51,34 @@ export interface QueryCondition {
 
 export type QueryStrategy = "index_scan" | "full_scan" | "id_lookup"
 
+/**
+ * A value that can be used as an index key.
+ *
+ * Deliberately narrower than `IDBValidKey`: ctrodb only builds ranges from
+ * scalar field values (string, number, Date). Booleans, `null`, objects and
+ * arrays are not valid IndexedDB keys, so conditions on them must never
+ * produce an index scan.
+ */
+export type QueryKey = string | number | Date
+
+/**
+ * Storage-neutral description of a key range.
+ *
+ * The core never constructs `IDBKeyRange`; it builds one of these instead and
+ * lets each adapter interpret it. This is what allows the memory adapter (and
+ * therefore Node) to run indexed queries in environments without IndexedDB.
+ *
+ * The shape is structurally compatible with the four bound properties of
+ * `IDBKeyRange`, so existing adapter implementations that only read
+ * `lower`/`upper`/`lowerOpen`/`upperOpen` keep working.
+ */
+export interface QueryRange {
+  readonly lower?: QueryKey
+  readonly upper?: QueryKey
+  readonly lowerOpen: boolean
+  readonly upperOpen: boolean
+}
+
 export interface SortSpec {
   field: string
   direction: "asc" | "desc"
@@ -59,7 +87,7 @@ export interface SortSpec {
 export interface QueryPlan {
   strategy: QueryStrategy
   indexName?: string
-  range?: IDBKeyRange
+  range?: QueryRange
   primaryConditions: QueryCondition[]
   postFilterConditions: QueryCondition[]
   sort?: SortSpec
@@ -86,18 +114,39 @@ export interface PluginStoreConfig {
 
 export type PluginStoreName = string | PluginStoreConfig
 
+/**
+ * Where a write came from.
+ *
+ * `"local"` — a caller used the Collection API (user intent).
+ * `"remote"` — the sync engine applied data received from a transport.
+ *
+ * Hooks receive a {@link WriteContext} as their final argument so plugins can
+ * avoid reacting to their own applied changes (e.g. re-queueing synced data).
+ */
+export type WriteOrigin = "local" | "remote"
+
+export interface WriteContext {
+  readonly origin: WriteOrigin
+}
+
 export interface CtroDBPlugin {
   name: string
   version?: string
   storeNames?: PluginStoreName[]
   onDatabaseInit?(db: unknown): void
   onCollectionInit?(collection: unknown): void
-  onBeforeCreate?(collection: string, data: unknown): unknown
-  onAfterCreate?(collection: string, record: unknown): void
-  onBeforeUpdate?(collection: string, id: ID, changes: unknown): unknown
-  onAfterUpdate?(collection: string, id: ID, record: unknown, oldRecord?: unknown): void
-  onBeforeDelete?(collection: string, id: ID): void
-  onAfterDelete?(collection: string, id: ID, oldRecord?: unknown): void
+  onBeforeCreate?(collection: string, data: unknown, context?: WriteContext): unknown
+  onAfterCreate?(collection: string, record: unknown, context?: WriteContext): void
+  onBeforeUpdate?(collection: string, id: ID, changes: unknown, context?: WriteContext): unknown
+  onAfterUpdate?(
+    collection: string,
+    id: ID,
+    record: unknown,
+    oldRecord?: unknown,
+    context?: WriteContext,
+  ): void
+  onBeforeDelete?(collection: string, id: ID, context?: WriteContext): void
+  onAfterDelete?(collection: string, id: ID, oldRecord?: unknown, context?: WriteContext): void
 }
 
 export interface TransactionContext {
@@ -120,7 +169,7 @@ export interface StorageAdapter {
   scanIndex(
     collection: string,
     indexName: string,
-    range: IDBKeyRange | undefined,
+    range: QueryRange | undefined,
     postFilters: QueryCondition[],
   ): Promise<unknown[]>
   transaction<T>(fn: (ctx: TransactionContext) => Promise<T>): Promise<T>

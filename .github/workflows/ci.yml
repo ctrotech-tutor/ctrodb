@@ -30,7 +30,10 @@ jobs:
       - run: npm ci
 
       - run: npm run typecheck
-        name: TypeScript
+        name: TypeScript (src)
+
+      - run: npm run typecheck:tests
+        name: TypeScript (tests)
 
       - run: npm run lint
         name: Biome Lint
@@ -40,3 +43,6 @@ jobs:
 
       - run: npm run build
         name: Build
+
+      - run: node scripts/verify-package.mjs
+        name: Verify package
