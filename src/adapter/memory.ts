@@ -5,6 +5,7 @@ import type {
   QueryRange,
   SchemaConfig,
   StorageAdapter,
+  TransactionCollection,
   TransactionContext,
 } from "../types"
 
@@ -180,13 +181,30 @@ export class MemoryAdapter implements StorageAdapter {
   }
 
   async transaction<T>(fn: (ctx: TransactionContext) => Promise<T>): Promise<T> {
-    const snapshot = this.#snapshot()
+    // Journal per operation instead of snapshotting the whole store: a
+    // snapshot-based rollback also undid *unrelated* writes that happened
+    // concurrently while the transaction was in flight (audit H-05).
+    const context = new MemoryTransactionContext(this)
     try {
-      return await fn(new MemoryTransactionContext(this))
+      return await fn(context)
     } catch (error) {
-      this.#restore(snapshot)
+      context.rollback()
       throw error
     }
+  }
+
+  /** @internal used by the transaction journal */
+  _record(collection: string, id: ID): Record<string, unknown> | undefined {
+    const record = this.#data.get(collection)?.get(id)
+    return record ? { ...record } : undefined
+  }
+
+  /** @internal used by the transaction journal */
+  _write(collection: string, id: ID, record: Record<string, unknown> | undefined): void {
+    const store = this.#data.get(collection)
+    if (!store) return
+    if (record === undefined) store.delete(id)
+    else store.set(id, record)
   }
 
   async getMetadata(key: string): Promise<unknown> {
@@ -211,34 +229,66 @@ export class MemoryAdapter implements StorageAdapter {
       this.#counters.set(name, 1)
     }
   }
-
-  #snapshot(): {
-    data: Map<string, Map<ID, Record<string, unknown>>>
-    counters: Map<string, number>
-  } {
-    return {
-      data: new Map([...this.#data].map(([k, v]) => [k, new Map(v)])),
-      counters: new Map(this.#counters),
-    }
-  }
-
-  #restore(snapshot: {
-    data: Map<string, Map<ID, Record<string, unknown>>>
-    counters: Map<string, number>
-  }): void {
-    this.#data = snapshot.data
-    this.#counters = snapshot.counters
-  }
 }
 
+/**
+ * Scoped handle over the memory store with an undo journal.
+ *
+ * Mirrors `IDBTransactionContext`: operations run against one collection, and a
+ * thrown error reverts only the writes this transaction made, in reverse order.
+ */
 class MemoryTransactionContext implements TransactionContext {
   #adapter: MemoryAdapter
+  #undo: Array<() => void> = []
 
   constructor(adapter: MemoryAdapter) {
     this.#adapter = adapter
   }
 
-  collection(_name: string): unknown {
-    return this.#adapter
+  collection(name: string): TransactionCollection {
+    const adapter = this.#adapter
+    const undo = this.#undo
+
+    return {
+      async create(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const created = await adapter.create(name, data)
+        const id = created.id as ID
+        undo.push(() => adapter._write(name, id, undefined))
+        return created
+      },
+
+      async findById(id: ID) {
+        return adapter.findById(name, id)
+      },
+
+      async findAll() {
+        return adapter.findAll(name)
+      },
+
+      async update(id: ID, changes: Record<string, unknown>) {
+        const before = adapter._record(name, id)
+        const updated = await adapter.update(name, id, changes)
+        undo.push(() => adapter._write(name, id, before))
+        return updated
+      },
+
+      async delete(id: ID) {
+        const before = adapter._record(name, id)
+        await adapter.delete(name, id)
+        undo.push(() => adapter._write(name, id, before))
+      },
+    }
+  }
+
+  /** Revert this transaction's writes, newest first. */
+  rollback(): void {
+    for (let i = this.#undo.length - 1; i >= 0; i--) {
+      try {
+        this.#undo[i]?.()
+      } catch {
+        // A failed undo must not mask the original error.
+      }
+    }
+    this.#undo = []
   }
 }

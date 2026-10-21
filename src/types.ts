@@ -149,8 +149,22 @@ export interface CtroDBPlugin {
   onAfterDelete?(collection: string, id: ID, oldRecord?: unknown, context?: WriteContext): void
 }
 
+/**
+ * The scoped handle a transaction exposes for one collection.
+ *
+ * All operations run inside the transaction and participate in its commit or
+ * rollback. Both shipped adapters implement this identically.
+ */
+export interface TransactionCollection {
+  create(data: Record<string, unknown>): Promise<Record<string, unknown>>
+  findById(id: ID): Promise<Record<string, unknown> | undefined>
+  findAll(): Promise<Record<string, unknown>[]>
+  update(id: ID, changes: Record<string, unknown>): Promise<Record<string, unknown>>
+  delete(id: ID): Promise<void>
+}
+
 export interface TransactionContext {
-  collection(name: string): unknown
+  collection(name: string): TransactionCollection
 }
 
 export interface StorageAdapter {

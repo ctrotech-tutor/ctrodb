@@ -36,7 +36,7 @@ describe("transaction rollback", () => {
     await db.disconnect()
   })
 
-  it("adapter.transaction rolls back on error", async () => {
+  it("adapter.transaction rolls back context writes on error", async () => {
     const db = new Database({
       name: "tx-transaction-test",
       adapter: new MemoryAdapter(),
@@ -48,9 +48,15 @@ describe("transaction rollback", () => {
     await accounts.create({ name: "Persistent", balance: 500 })
     expect(await accounts.count()).toBe(1)
 
+    // Transactional writes go through the scoped context. (Collection writes
+    // are separate operations on both adapters — see README "Transactions".)
     await expect(
-      db.transaction(async () => {
-        await accounts.create({ name: "Rolled Back", balance: 100 })
+      db.transaction(async (ctx) => {
+        await ctx.collection("accounts").create({
+          id: "rolled-back",
+          name: "Rolled Back",
+          balance: 100,
+        })
         throw new Error("simulated failure")
       }),
     ).rejects.toThrow("simulated failure")

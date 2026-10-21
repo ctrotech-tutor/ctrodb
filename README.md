@@ -379,6 +379,50 @@ const db = new Database({
 
 ---
 
+## Transactions
+
+`db.transaction(fn)` runs a set of writes atomically on **both** adapters:
+
+```typescript
+await db.transaction(async (tx) => {
+  const accounts = tx.collection("accounts")
+  const from = await accounts.findById("alice")
+  if (!from || from.balance < 100) throw new Error("insufficient funds")
+
+  await accounts.update("alice", { balance: from.balance - 100 })
+  await accounts.create({ id: "deposit", owner: "bob", balance: 100 })
+})
+// Resolves only after the change is durably committed.
+// If the callback throws, no write is applied and your error is rethrown as-is.
+```
+
+Rules that apply to both adapters:
+
+- **Use `tx.collection(name)` inside the callback.** Writes made through
+  `db.collection(...)` are separate operations; they are not rolled back with
+  the transaction. (On IndexedDB they cannot be: a collection write opens its
+  own transaction.)
+- **Do not await non-database work** (timers, `fetch`, `setTimeout`) inside the
+  callback. IndexedDB commits as soon as its transaction goes idle; waiting on
+  anything else ends the transaction early. Do the I/O first, then open the
+  transaction.
+- A resolved promise means *committed*, not merely "the callback returned".
+
+## Ordering
+
+`query().fetch()` returns records in **primary-key ascending** order unless you
+ask for a different one, identically on every adapter:
+
+```typescript
+await todos.query().limit(20)                 // deterministic page 1
+await todos.query().sort({ createdAt: "desc" }) // explicit ordering
+```
+
+Ordering applies to `offset()`/`limit()` windows and to `orWhere()` queries as
+well. Before this guarantee, the memory adapter returned insertion order while
+IndexedDB returned key order, so pagination differed between tests and
+production and an `orWhere()` query silently ignored the requested order.
+
 ## Sync Engine
 
 ctrodb's sync engine provides **offline-first** synchronization with any backend. All mutations are recorded locally first; the sync queue persists via `_ctrodb_sync_changes`. Conflicts are resolved deterministically.
