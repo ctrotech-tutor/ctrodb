@@ -3,14 +3,14 @@ import type { CollectionSchema, QueryCondition, SortSpec } from "../types"
 import type { QueryExecutor } from "./executor"
 import type { QueryPlanner } from "./planner"
 
-interface QueryableCollection<T extends Record<string, unknown>> {
+interface QueryableCollection<T extends object> {
   readonly name: string
   _getSchema(): import("../schema").Schema | null
   _getAdapter(): import("../types").StorageAdapter
   _toModels(rawRecords: T[]): (Model<T> & T)[]
 }
 
-export class QueryBuilder<T extends Record<string, unknown>> {
+export class QueryBuilder<T extends object> {
   #conditionGroups: QueryCondition[][] = [[]]
   #sortSpec: SortSpec | undefined
   #limitValue: number | undefined

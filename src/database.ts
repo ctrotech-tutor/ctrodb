@@ -121,9 +121,7 @@ export class Database {
     this.#connected = false
   }
 
-  collection<T extends Record<string, unknown> = Record<string, unknown>>(
-    name: string,
-  ): Collection<T> {
+  collection<T extends object = Record<string, unknown>>(name: string): Collection<T> {
     if (!this.#connected && name !== "_create") {
       throw new ConnectionError(this.name)
     }

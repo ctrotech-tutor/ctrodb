@@ -18,6 +18,21 @@ const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
 export default defineConfig({
   define: { __CTRODB_VERSION__: JSON.stringify(pkg.version) },
   test: {
+    // Measured at 90.4 / 82.4 / 90.1 / 92.8 when the thresholds were added;
+    // they sit just below that so ordinary refactors do not fail CI, while a
+    // real coverage regression does.
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/index.ts", "src/react.ts", "src/types.ts"],
+      thresholds: {
+        statements: 89,
+        branches: 81,
+        functions: 89,
+        lines: 91,
+      },
+    },
     projects: [
       {
         test: {

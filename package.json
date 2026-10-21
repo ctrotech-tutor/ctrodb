@@ -1,6 +1,6 @@
 {
   "name": "ctrodb",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "A zero-dependency, reactive, client-side database with full-text search and relations. Schema-driven, type-safe, and a joy to use.",
   "type": "module",
   "main": "dist/index.cjs",
@@ -27,6 +27,14 @@
         "types": "./dist/react/react.d.cts",
         "default": "./dist/react/react.cjs"
       }
+    }
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
     }
   },
   "files": [
@@ -91,14 +99,6 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
-  },
-  "peerDependencies": {
-    "react": ">=18"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
   },
   "typesVersions": {
     "*": {

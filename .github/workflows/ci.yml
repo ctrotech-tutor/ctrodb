@@ -13,8 +13,10 @@ jobs:
     timeout-minutes: 10
 
     strategy:
+      # Node 20 reached end-of-life in April 2026; 22 and 24 are what the
+      # package claims to support, and both are tested on every push.
       matrix:
-        node-version: [20, 22]
+        node-version: [22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +43,12 @@ jobs:
       - run: npm test
         name: Tests
 
+      # Thresholds live in vitest.config.ts, so a coverage regression fails the
+      # build instead of being discovered by users.
+      - run: npm run test:coverage
+        name: Tests (with coverage thresholds)
+        if: matrix.node-version == 22
+
       - run: npm run build
         name: Build
 
@@ -49,3 +57,26 @@ jobs:
 
       - run: npm run typecheck:smoke
         name: Type-check consumer (published declarations)
+
+  declarations:
+    name: Package resolution (@arethetypeswrong)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+        name: Build
+
+      # Catches the ".d.ts masquerading as ESM" class of bug for every
+      # supported resolver (node10, node16 CJS/ESM, bundler).
+      - run: npx --yes @arethetypeswrong/cli@0.18.5 --pack .
+        name: Check types for every module resolution mode

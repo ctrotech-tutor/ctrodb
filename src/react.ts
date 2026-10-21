@@ -52,19 +52,19 @@ export function useDatabase(): Database {
  */
 const COALESCE_MS = 16
 
-export interface QueryResult<T extends Record<string, unknown>> {
+export interface QueryResult<T extends object> {
   data: Array<Model<T> & T>
   loading: boolean
   error: Error | undefined
 }
 
-export interface DocResult<T extends Record<string, unknown>> {
+export interface DocResult<T extends object> {
   data: (Model<T> & T) | undefined
   loading: boolean
   error: Error | undefined
 }
 
-export function useQuery<T extends Record<string, unknown>>(
+export function useQuery<T extends object>(
   collectionName: string,
   queryFn?: (q: QueryBuilder<T>) => QueryBuilder<T>,
   deps: unknown[] = [],
@@ -164,10 +164,7 @@ export function useQuery<T extends Record<string, unknown>>(
   return state
 }
 
-export function useDoc<T extends Record<string, unknown>>(
-  collectionName: string,
-  id: ID | undefined,
-): DocResult<T> {
+export function useDoc<T extends object>(collectionName: string, id: ID | undefined): DocResult<T> {
   const { data, loading, error } = useQuery<T>(
     collectionName,
     (q) => q.where("id" as keyof T & string, "==", id),
@@ -176,7 +173,7 @@ export function useDoc<T extends Record<string, unknown>>(
   return { data: data[0], loading, error }
 }
 
-export function useMutation<T extends Record<string, unknown>>(
+export function useMutation<T extends object>(
   collectionName: string,
 ): {
   create: (data: Omit<T, "id"> & { id?: ID }) => Promise<Model<T> & T>

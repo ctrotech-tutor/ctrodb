@@ -39,6 +39,9 @@ jobs:
         name: Biome Lint
       - run: npm test
         name: Tests
+
+      - run: npm run test:coverage
+        name: Tests (with coverage thresholds)
       - run: npm run build
         name: Build
       - name: Verify package contents
@@ -46,6 +49,9 @@ jobs:
 
       - name: Type-check consumer (published declarations)
         run: npm run typecheck:smoke
+
+      - name: Check types for every module resolution mode
+        run: npx --yes @arethetypeswrong/cli@0.18.5 --pack .
 
   create-release:
     name: Create GitHub Release
