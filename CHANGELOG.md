@@ -3,6 +3,44 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.12.0] - 2026-10-21
+
+### Fixed
+- **Writes inside `db.transaction()` now follow the Collection contract.**
+  Previously the transaction exposed the raw adapter context: `create()` skipped
+  schema defaults and validation, none of the writes ran plugin hooks, and
+  `db.on()` / `collection.onChange()` got no events. A transactional FTS create
+  therefore committed a row that `query().match()` could never find.
+
+  The transaction context now applies defaults and validation, runs `onBefore*`
+  hooks before the adapter operation, and queues `onAfter*` hooks plus change
+  events until after commit. If the callback aborts, no queued hook or event runs;
+  the adapter rolls back the data and the derived FTS index stays untouched.
+  Transactional create, update, and delete all feed the FTS index correctly.
+
+  **After-hooks intentionally run after the commit, in write order** (not
+  interleaved with adapter writes as they are for standalone collection methods).
+  An after-hook writes through the adapter; running it inside an IndexedDB
+  transaction would open a second transaction and can let the outer one auto-
+  commit. Errors from after-hooks use the existing non-fatal plugin error path:
+  the data is already durable, so rejecting would falsely invite a retry.
+
+- Transactional collection access now invokes `onCollectionInit`, which query
+  plugins need to register their collection configuration before the first
+  transactional write.
+- Record id generation is shared by `Collection` and transaction writes through
+  `src/utils/id.ts` rather than duplicated.
+
+### Verification
+- `tests/integration/transaction-pipeline.test.ts` — 31 tests on both adapters:
+  generated ids, defaults, validation and rollback, update validation / missing
+  record, ordered create-update-delete events with correct `oldRecord`, no event
+  or posting on abort, FTS create/update/delete parity, before/after hooks,
+  non-fatal after-hook errors, read-your-writes, repeated and concurrent
+  transactions.
+- `npm run verify` — 712 tests / 42 files; typecheck, build and package
+  verification passed.
+
 ## [1.11.0] - 2026-10-21
 
 ### Added

@@ -15,6 +15,7 @@ import type {
   StorageAdapter,
   WriteContext,
 } from "./types"
+import { generateId } from "./utils/id"
 import { runAfterHook, runHook } from "./utils/plugin-hooks"
 import { LOCAL_WRITE } from "./write-context"
 
@@ -56,13 +57,6 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     this.#plugins = plugins
   }
 
-  #generateId(): ID {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID()
-    }
-    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  }
-
   /**
    * Insert a record.
    *
@@ -75,7 +69,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   ): Promise<ModelInstance<T, R>> {
     const raw = { ...data } as Record<string, unknown>
     if (raw.id === undefined) {
-      raw.id = this.#generateId()
+      raw.id = generateId()
     }
 
     let processed: Record<string, unknown> = raw
@@ -164,7 +158,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
 
     for (const [index, data] of records.entries()) {
       const raw = { ...data } as Record<string, unknown>
-      if (raw.id === undefined) raw.id = this.#generateId()
+      if (raw.id === undefined) raw.id = generateId()
 
       const id = raw.id as ID
       if (ids.has(id)) {

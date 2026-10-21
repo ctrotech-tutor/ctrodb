@@ -191,7 +191,7 @@ const db = new Database(config)                  // Untyped collections
 await db.connect()                          // Open connection
 await db.disconnect()                       // Close connection
 const col = db.collection<T>("name")        // Get or create collection
-await db.transaction(fn)                    // Run in transaction
+await db.transaction(fn)                    // Atomic writes; hooks/events after commit
 db.on(callback)                             // Subscribe to all changes
 ```
 
@@ -529,6 +529,9 @@ Rules that apply to both adapters:
   anything else ends the transaction early. Do the I/O first, then open the
   transaction.
 - A resolved promise means *committed*, not merely "the callback returned".
+- Transactional `create`/`update` writes get the same schema defaults and validation as collection writes; `onBefore*` hooks run before each adapter operation.
+- `onAfter*` hooks and change events run **after commit**, in write order. They are not run if the transaction aborts. This keeps plugin side effects (such as FTS postings) out of rolled-back transactions and avoids opening a second IndexedDB transaction while the first is active.
+- After-hook failures are reported through the normal plugin error path; they do not turn a durable commit into a rejected promise.
 
 ## Schema strictness
 
