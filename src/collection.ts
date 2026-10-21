@@ -1,4 +1,5 @@
 import { RecordNotFoundError } from "./errors"
+import type { ModelInstance } from "./model/index"
 import { Model } from "./model/index"
 import { QueryBuilder } from "./query/builder"
 import type { QueryExecutor } from "./query/executor"
@@ -69,7 +70,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   async create(
     data: Omit<T, "id"> & { id?: ID },
     context: WriteContext = LOCAL_WRITE,
-  ): Promise<Model<T, R> & T> {
+  ): Promise<ModelInstance<T, R>> {
     const raw = { ...data } as Record<string, unknown>
     if (raw.id === undefined) {
       raw.id = this.#generateId()
@@ -132,13 +133,13 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     return model
   }
 
-  async get(id: ID): Promise<(Model<T, R> & T) | undefined> {
+  async get(id: ID): Promise<ModelInstance<T, R> | undefined> {
     const record = (await this.#adapter.findById(this.name, id)) as T | undefined
     if (!record) return undefined
     return this._toModel(record)
   }
 
-  async getAll(): Promise<(Model<T, R> & T)[]> {
+  async getAll(): Promise<ModelInstance<T, R>[]> {
     const records = (await this.#adapter.findAll(this.name)) as T[]
     return this._toModels(records)
   }
@@ -147,7 +148,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     id: ID,
     changes: Partial<T>,
     context: WriteContext = LOCAL_WRITE,
-  ): Promise<Model<T, R> & T> {
+  ): Promise<ModelInstance<T, R>> {
     const existing = (await this.#adapter.findById(this.name, id)) as T | undefined
     if (!existing) throw new RecordNotFoundError(this.name, id)
 
@@ -228,7 +229,10 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     }
   }
 
-  async put(data: T & { id?: ID }, context: WriteContext = LOCAL_WRITE): Promise<Model<T, R> & T> {
+  async put(
+    data: T & { id?: ID },
+    context: WriteContext = LOCAL_WRITE,
+  ): Promise<ModelInstance<T, R>> {
     if (data.id !== undefined) {
       const existing = await this.#adapter.findById(this.name, data.id)
       if (existing) {
@@ -268,7 +272,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     })
   }
 
-  _toModel(data: T): Model<T, R> & T {
+  _toModel(data: T): ModelInstance<T, R> {
     const model = new Model<T, R>(
       data,
       {
@@ -282,10 +286,10 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
       },
       this.#schema,
     )
-    return model as unknown as Model<T, R> & T
+    return model as unknown as ModelInstance<T, R>
   }
 
-  _toModels(data: T[]): (Model<T, R> & T)[] {
+  _toModels(data: T[]): ModelInstance<T, R>[] {
     return data.map((d) => this._toModel(d))
   }
 
@@ -297,7 +301,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     return this.#adapter
   }
 
-  async #eagerLoad(models: Array<Model<T> & T>, relations: string[]): Promise<void> {
+  async #eagerLoad(models: Array<ModelInstance<T, R>>, relations: string[]): Promise<void> {
     if (models.length === 0 || !this.#schema) return
     for (const relationName of relations) {
       const def = this.#schema.getRelations(this.name)?.[relationName]
@@ -317,7 +321,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   }
 
   async #eagerLoadBelongsTo(
-    models: Array<Model<T, R> & T>,
+    models: Array<ModelInstance<T, R>>,
     relationName: string,
     def: RelationDefinition,
   ): Promise<void> {
@@ -342,7 +346,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   }
 
   async #eagerLoadHasMany(
-    models: Array<Model<T, R> & T>,
+    models: Array<ModelInstance<T, R>>,
     relationName: string,
     def: RelationDefinition,
   ): Promise<void> {
@@ -369,7 +373,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
   }
 
   async #eagerLoadHasOne(
-    models: Array<Model<T, R> & T>,
+    models: Array<ModelInstance<T, R>>,
     relationName: string,
     def: RelationDefinition,
   ): Promise<void> {

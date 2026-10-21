@@ -12,6 +12,7 @@ export {
   StorageQuotaError,
   ValidationError,
 } from "./errors"
+export type { ModelInstance, RelationAccessors } from "./model/index"
 export { Model } from "./model/index"
 export type { ValidationRule } from "./plugins/index"
 export {

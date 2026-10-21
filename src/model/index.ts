@@ -1,6 +1,27 @@
+import type { QueryBuilder } from "../query/builder"
 import type { Schema } from "../schema"
 import type { DocOf, HasManyKeys, RelationShapes, ToOneKeys } from "../schema-types"
 import type { ID } from "../types"
+
+/**
+ * Lazy relation accessors, as they exist on a model instance at runtime.
+ *
+ * `post.author` (declared as a relation in the schema) has always returned a
+ * `QueryBuilder`; until now that was invisible to TypeScript, so the documented
+ * `await post.author.first()` did not compile (audit M-13).
+ */
+export type RelationAccessors<R extends RelationShapes> = {
+  [K in keyof R & string]: QueryBuilder<DocOf<R[K]>>
+}
+
+/**
+ * A model as the API hands it to you: the `Model` methods, the document's own
+ * fields (`post.title`), and the schema's relation getters (`post.author`).
+ */
+export type ModelInstance<
+  T extends object,
+  R extends RelationShapes = Record<never, never>,
+> = Model<T, R> & T & RelationAccessors<R>
 
 export class Model<
   T extends object = Record<string, unknown>,
@@ -9,7 +30,7 @@ export class Model<
   #data: T
   #collection: {
     readonly name: string
-    update(id: ID, changes: Partial<T>): Promise<Model<T, R> & T>
+    update(id: ID, changes: Partial<T>): Promise<ModelInstance<T, R>>
     delete(id: ID): Promise<void>
     _getSchema(): Schema | null
   }
@@ -22,7 +43,7 @@ export class Model<
     data: T,
     collection: {
       readonly name: string
-      update(id: ID, changes: Partial<T>): Promise<Model<T, R> & T>
+      update(id: ID, changes: Partial<T>): Promise<ModelInstance<T, R>>
       delete(id: ID): Promise<void>
       _getSchema(): Schema | null
     },
@@ -116,7 +137,7 @@ export class Model<
     return (this.#data as Record<string, unknown>).id as ID
   }
 
-  async update(changes: Partial<T>): Promise<Model<T, R> & T> {
+  async update(changes: Partial<T>): Promise<ModelInstance<T, R>> {
     return this.#collection.update(this.id, changes)
   }
 

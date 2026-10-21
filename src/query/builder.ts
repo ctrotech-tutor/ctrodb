@@ -1,4 +1,4 @@
-import type { Model } from "../model/index"
+import type { ModelInstance } from "../model/index"
 import type { RelationShapes } from "../schema-types"
 import type { CollectionSchema, QueryCondition, QueryOperator, SortSpec } from "../types"
 import type { QueryExecutor } from "./executor"
@@ -8,7 +8,7 @@ interface QueryableCollection<T extends object, R extends RelationShapes> {
   readonly name: string
   _getSchema(): import("../schema").Schema | null
   _getAdapter(): import("../types").StorageAdapter
-  _toModels(rawRecords: T[]): (Model<T, R> & T)[]
+  _toModels(rawRecords: T[]): ModelInstance<T, R>[]
   count(): Promise<number>
 }
 
@@ -99,7 +99,7 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
     return this
   }
 
-  async fetch(): Promise<(Model<T, R> & T)[]> {
+  async fetch(): Promise<ModelInstance<T, R>[]> {
     const rawRecords = await this.#run()
     return this.#collection._toModels(rawRecords)
   }
@@ -131,7 +131,7 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
     return this.#executor.execute<T>(this.#collection._getAdapter(), this.#collection.name, plan)
   }
 
-  async first(): Promise<(Model<T, R> & T) | undefined> {
+  async first(): Promise<ModelInstance<T, R> | undefined> {
     const results = await this.limit(1).fetch()
     return results[0]
   }

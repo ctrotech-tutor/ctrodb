@@ -84,6 +84,21 @@ export async function readsAndRelations() {
   const firstTitle: string | undefined = written?.[0]?.title
   void firstTitle
 
+  // The lazy getter is the same relation, typed: `post.author.first()` was
+  // documented but did not compile before M-13.
+  const lazyAuthor = await post.author.first()
+  const lazyAuthorName: string | undefined = lazyAuthor?.name
+  void lazyAuthorName
+
+  const lazyPosts = await authors.get("a1")
+  const lazyPostTitle: string | undefined = await lazyPosts?.posts.first().then((p) => p?.title)
+  void lazyPostTitle
+
+  // @ts-expect-error not a relation of posts
+  post.posts
+  // @ts-expect-error a to-one relation cannot be iterated as a collection
+  post.author.posts
+
   // @ts-expect-error not a relation of posts
   await post.load("posts")
   // @ts-expect-error not a relation at all
