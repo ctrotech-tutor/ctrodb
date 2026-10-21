@@ -3,6 +3,39 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.9.1] - 2026-10-21
+
+### Added
+- **`ctrodb/package.json` is reachable.** The `exports` map only declared `.`
+  and `./react`, so tools that read package metadata — `npm ls`, bundler
+  plugins, licence and SBOM scanners — got
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`. Both forms now work:
+
+  ```js
+  const meta = require("ctrodb/package.json")            // CJS
+  import meta from "ctrodb/package.json" with { type: "json" }  // ESM
+  ```
+
+  Additive: no existing import path changes, and `attw` reports all four
+  resolution modes green, including the new subpath.
+
+### Changed
+- **The release workflow now confirms a version is actually readable.** On
+  2026-10-21 `ctrodb@1.9.0` published successfully and the registry kept serving
+  1.8.2 for about 35 minutes — indistinguishable from a failed release. The
+  publish job now polls `npm view ctrodb@<version>` for up to five minutes and
+  emits a warning annotation naming the npm URL if the version is still absent.
+  It does not fail the run: replication lag is not a publish failure, but it must
+  not be silent.
+- `scripts/verify-package.mjs` fails the build if `./package.json` is dropped
+  from `exports`, so the subpath cannot silently disappear again.
+
+### Verification
+- `npm pack`, install the tarball in a clean project, then `require("ctrodb/package.json")`,
+  `import ... with { type: "json" }`, and a CJS runtime smoke test all pass.
+- `npx @arethetypeswrong/cli --pack .`: green for `ctrodb`, `ctrodb/react` and
+  `ctrodb/package.json` under node10, node16 (CJS), node16 (ESM) and bundler.
+
 ## [1.9.0] - 2026-10-21
 
 ### Added
