@@ -9,6 +9,7 @@
  * (audit L-08).
  */
 import type { QueryCondition } from "../types"
+import { tokenize } from "./tokenizer"
 
 /**
  * Evaluate a single `where` condition. `search` conditions are handled by
@@ -47,8 +48,38 @@ export function matchesSearch(record: Record<string, unknown>, cond: QueryCondit
   return value.toLowerCase().includes(cond.value.toLowerCase())
 }
 
+/**
+ * Tokenised **AND** match across `cond.fields` (or `cond.field` when unset).
+ *
+ * This is what `query().match()` means, and it is deliberately different from
+ * `search()`: every token of the query must appear as a whole word somewhere in
+ * the selected fields. The full-text index produces *candidates* for exactly
+ * this predicate, and this function is what decides membership — so a stale or
+ * over-broad index can never widen a result set.
+ */
+export function matchesMatch(record: Record<string, unknown>, cond: QueryCondition): boolean {
+  if (typeof cond.value !== "string") return false
+
+  const tokens = tokenize(cond.value)
+  // A query with no searchable tokens matches nothing: the index would return
+  // no postings either, and matching everything would be a surprise.
+  if (tokens.length === 0) return false
+
+  const fields = cond.fields ?? [cond.field]
+  const haystack = new Set<string>()
+  for (const field of fields) {
+    const value = record[field]
+    if (typeof value !== "string") continue
+    for (const token of tokenize(value)) haystack.add(token)
+  }
+
+  return tokens.every((token) => haystack.has(token))
+}
+
 export function matchesCondition(record: Record<string, unknown>, cond: QueryCondition): boolean {
-  return cond.type === "search" ? matchesSearch(record, cond) : matchesWhere(record, cond)
+  if (cond.type === "search") return matchesSearch(record, cond)
+  if (cond.type === "match") return matchesMatch(record, cond)
+  return matchesWhere(record, cond)
 }
 
 /**

@@ -2,7 +2,7 @@ import { RecordNotFoundError } from "./errors"
 import type { ModelInstance } from "./model/index"
 import { Model } from "./model/index"
 import { QueryBuilder } from "./query/builder"
-import type { QueryExecutor } from "./query/executor"
+import type { QueryExecutor, TokenSearch } from "./query/executor"
 import type { QueryPlanner } from "./query/planner"
 import { Signal } from "./reactive/signal"
 import type { Schema } from "./schema"
@@ -23,6 +23,8 @@ interface DatabaseShim {
   _getSchema(): Schema | null
   _emit(event: ChangeEvent): void
   collection(name: string): unknown
+  /** Token index supplied by a plugin, if one is installed. */
+  _queryTokens?(collection: string, query: string, fields?: string[]): Promise<ID[] | undefined>
 }
 
 export class Collection<T extends object, R extends RelationShapes = Record<never, never>> {
@@ -310,6 +312,18 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
     return this.#adapter
   }
 
+  /**
+   * The token index for this collection, if a plugin provides one.
+   *
+   * Returns `undefined` when nothing can answer token queries, which makes
+   * `match()` fall back to scanning — same results, slower.
+   */
+  _queryTokens(): TokenSearch | undefined {
+    const lookup = this.#db._queryTokens
+    if (!lookup) return undefined
+    return (collection, query, fields) => lookup.call(this.#db, collection, query, fields)
+  }
+
   async #eagerLoad(models: Array<ModelInstance<T, R>>, relations: string[]): Promise<void> {
     if (models.length === 0 || !this.#schema) return
     for (const relationName of relations) {
@@ -412,6 +426,7 @@ export class Collection<T extends object, R extends RelationShapes = Record<neve
       _getAdapter: () => this.#adapter,
       _toModels: (raw: T[]) => this._toModels(raw),
       count: () => this.count(),
+      _queryTokens: () => this._queryTokens(),
     }
   }
 }

@@ -3,6 +3,60 @@
 All notable changes to ctrodb are documented in this file. Releases are
 published automatically from tags by `.github/workflows/publish.yml`.
 
+## [1.10.0] - 2026-10-21
+
+### Added
+- **`query().match(text, fields?)`** — tokenised, multi-field search answered by
+  the full-text index. Close to P3-1 in the audit, and the point where
+  `ftsPlugin()` finally accelerates queries instead of only costing write time.
+
+  ```typescript
+  await articles.query().match("typescript database").fetch()   // every token must match
+  await articles.query().match("typescript", ["title"]).fetch() // scoped to fields
+  ```
+
+  Without `fields` it searches the collection's declared `searchable` fields —
+  exactly what the plugin indexes. On 5,000 documents a one-hit query costs
+  **0.017 ms with the index and 11.3 ms without** (666x); a query matching 500
+  rows is still 5.7x faster.
+
+- **`StorageAdapter.hasIndex?(collection, indexName)`** and
+  **`CtroDBPlugin.queryTokens?(collection, query, fields?)`** — the capability
+  boundary that lets a plugin answer token queries for the collections it
+  indexes and *decline* everything else. A declined query scans, so results never
+  depend on the index being present.
+
+### Fixed
+- **A second `search()` condition was silently dropped.** The planner kept only
+  the last textual condition, so
+  `.search("title", "alpha").search("body", "zeta")` returned rows matching
+  *either*. All textual conditions are now carried and applied. The same applies
+  to chained `match()` calls.
+- **`search()` was unusable on optional fields in typed code.** `StringKeys<T>`
+  compared `string | undefined` against `string`, collapsing the allowed field
+  names to `never`; since only `required: true` fields are non-optional, that
+  covered most fields. `NonNullable<T[K]>` fixes it, and `match()` uses the same
+  key type, so a numeric field cannot be requested as a search field.
+
+### Semantics
+- `search(field, text)` is unchanged: case-insensitive **substring** on one field.
+- `match(text, fields?)` is new and deliberately different: **every token** of
+  `text` must appear as a whole word, so `match("quick")` does not find
+  "quickfix". A query made only of stop words matches nothing.
+- The index produces *candidates*; the predicate decides membership. A phantom
+  posting cannot surface a row that no longer exists.
+
+### Verification
+- `tests/integration/query-match.test.ts` — 18 tests. Every behavioural case runs
+  with **and** without `ftsPlugin()` and the results must be equal.
+- The index path is proven, not assumed: the indexed query makes no `findAll()`
+  call on the collection, while the unindexed one must.
+- `npm run perf:guard` fails if an indexed `match()` is less than 5x faster than
+  the scan (measured: 666x).
+- `scripts/type-smoke` compiles the README examples against the built
+  declarations, including the optional-field case that used to fail.
+- `npm run verify` — 647 tests / 40 files.
+
 ## [1.9.2] - 2026-10-21
 
 ### Fixed

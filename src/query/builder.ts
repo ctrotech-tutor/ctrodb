@@ -1,7 +1,8 @@
+import { QueryError } from "../errors"
 import type { ModelInstance } from "../model/index"
 import type { RelationShapes } from "../schema-types"
 import type { CollectionSchema, QueryCondition, QueryOperator, SortSpec } from "../types"
-import type { QueryExecutor } from "./executor"
+import type { QueryExecutor, TokenSearch } from "./executor"
 import type { QueryPlanner } from "./planner"
 
 interface QueryableCollection<T extends object, R extends RelationShapes> {
@@ -10,10 +11,22 @@ interface QueryableCollection<T extends object, R extends RelationShapes> {
   _getAdapter(): import("../types").StorageAdapter
   _toModels(rawRecords: T[]): ModelInstance<T, R>[]
   count(): Promise<number>
+  /** Token index for this collection, when a plugin provides one. */
+  _queryTokens?(): TokenSearch | undefined
 }
 
-/** Keys of `T` whose value is a string. */
-type StringKeys<T> = { [K in keyof T]-?: T[K] extends string ? K : never }[keyof T] & string
+/**
+ * Keys of `T` whose value is a string.
+ *
+ * `NonNullable` matters: a field that is not `required` is optional on the
+ * document type, so its value is `string | undefined`, and a plain
+ * `extends string` check turns every such field into `never` — which made
+ * `search()` (and `match()`) unusable on the most common kind of field.
+ */
+type StringKeys<T> = {
+  [K in keyof T]-?: NonNullable<T[K]> extends string ? K : never
+}[keyof T] &
+  string
 
 export class QueryBuilder<T extends object, R extends RelationShapes = Record<never, never>> {
   #conditionGroups: QueryCondition[][] = [[]]
@@ -128,7 +141,12 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
     plan.limit = this.#limitValue
     plan.offset = this.#offsetValue
 
-    return this.#executor.execute<T>(this.#collection._getAdapter(), this.#collection.name, plan)
+    return this.#executor.execute<T>(
+      this.#collection._getAdapter(),
+      this.#collection.name,
+      plan,
+      this.#collection._queryTokens?.(),
+    )
   }
 
   async first(): Promise<ModelInstance<T, R> | undefined> {
@@ -165,6 +183,57 @@ export class QueryBuilder<T extends object, R extends RelationShapes = Record<ne
   search(field: string, query: string): this {
     const lastGroup = this.#conditionGroups[this.#conditionGroups.length - 1] ?? []
     lastGroup.push({ type: "search", field, value: query })
+    return this
+  }
+
+  /**
+   * Tokenised **AND** match, answered by the full-text index when it is present.
+   *
+   * Every token of `query` must appear as a whole word in the searched fields,
+   * so `match("quick fox")` finds "the quick brown fox" but not "quickfix".
+   * `search()` remains the substring filter; this is the word-aware one.
+   *
+   * ```ts
+   * await articles.query().match("typescript database").fetch()
+   * await articles.query().match("typescript", ["title"]).fetch()
+   * ```
+   *
+   * Without `fields`, the collection's declared `searchable` fields are used —
+   * the same fields `ftsPlugin()` indexes — so installing the plugin changes how
+   * fast this runs, never what it returns.
+   */
+  match(query: string, fields?: readonly StringKeys<T>[]): this {
+    const schema = this.#collection._getSchema()
+    const collectionSchema = schema?.collections[this.#collection.name]
+
+    let resolved: string[]
+    if (fields) {
+      resolved = [...fields]
+      if (resolved.length === 0) {
+        throw new QueryError(
+          'match() needs at least one field (pass ["field"], or omit for `searchable`)',
+        )
+      }
+      const unknown = resolved.filter(
+        (field) => collectionSchema && !collectionSchema.fields?.[field],
+      )
+      if (unknown.length > 0) {
+        throw new QueryError(
+          `match() references ${unknown.length === 1 ? "a field" : "fields"} that ${this.#collection.name} does not declare: ${unknown.join(", ")}`,
+        )
+      }
+    } else {
+      resolved = collectionSchema?.searchable ?? []
+      if (resolved.length === 0) {
+        throw new QueryError(
+          `match() on "${this.#collection.name}" needs fields: none are declared as \`searchable\` in the schema. ` +
+            'Add them to the collection\'s `searchable` array, or call match(query, ["field"]).',
+        )
+      }
+    }
+
+    const lastGroup = this.#conditionGroups[this.#conditionGroups.length - 1] ?? []
+    lastGroup.push({ type: "match", field: resolved[0] ?? "", value: query, fields: resolved })
     return this
   }
 }

@@ -2,6 +2,16 @@ import type { ID, QueryCondition, QueryPlan, SortSpec, StorageAdapter } from "..
 import { matchesAll } from "./predicate"
 import { compareQueryKeys } from "./range"
 
+/**
+ * Resolve a tokenised query to candidate ids, when the database has a token
+ * index for the collection (the full-text plugin supplies this).
+ */
+export type TokenSearch = (
+  collection: string,
+  query: string,
+  fields?: string[],
+) => Promise<ID[] | undefined>
+
 export class QueryExecutor {
   /**
    * Execute a query plan.
@@ -16,8 +26,9 @@ export class QueryExecutor {
     adapter: StorageAdapter,
     collectionName: string,
     plan: QueryPlan,
+    tokenSearch?: TokenSearch,
   ): Promise<T[]> {
-    const results = await this.#executePlan<T>(adapter, collectionName, plan)
+    const results = await this.#executePlan<T>(adapter, collectionName, plan, tokenSearch)
 
     return this.#applyWindow(results, plan)
   }
@@ -41,9 +52,17 @@ export class QueryExecutor {
     adapter: StorageAdapter,
     collectionName: string,
     plan: QueryPlan,
+    tokenSearch?: TokenSearch,
   ): Promise<T[]> {
     if (plan.groupType === "or") {
-      return this.#executeOrQuery<T>(adapter, collectionName, plan)
+      return this.#executeOrQuery<T>(adapter, collectionName, plan, tokenSearch)
+    }
+
+    const matches = [...plan.primaryConditions, ...plan.postFilterConditions].filter(
+      (condition) => condition.type === "match",
+    )
+    if (matches.length > 0) {
+      return this.#executeMatch<T>(adapter, collectionName, plan, matches, tokenSearch)
     }
 
     let results: T[]
@@ -94,6 +113,7 @@ export class QueryExecutor {
     adapter: StorageAdapter,
     collectionName: string,
     plan: QueryPlan,
+    tokenSearch?: TokenSearch,
   ): Promise<T[]> {
     const groups = plan.groups
     if (!groups) throw new Error("Query plan: OR query requires groups")
@@ -101,7 +121,9 @@ export class QueryExecutor {
     // to the merged result, otherwise an OR query silently ignored orderBy()
     // and limit() entirely.
     const allResults = await Promise.all(
-      groups.map((groupPlan) => this.#executePlan<T>(adapter, collectionName, groupPlan)),
+      groups.map((groupPlan) =>
+        this.#executePlan<T>(adapter, collectionName, groupPlan, tokenSearch),
+      ),
     )
 
     const seen = new Set<ID>()
@@ -117,6 +139,94 @@ export class QueryExecutor {
     }
 
     return merged
+  }
+
+  /**
+   * Execute a plan that contains `match` conditions.
+   *
+   * A token index turns the query into a bounded candidate set (one lookup per
+   * query token, intersected), so only the matching rows are read. Without one
+   * — no plugin, or an adapter that cannot index — the same predicate runs over
+   * a full scan, which is why the **results are identical either way**: the
+   * index only narrows what the predicate is asked to look at.
+   */
+  async #executeMatch<T extends object>(
+    adapter: StorageAdapter,
+    collectionName: string,
+    plan: QueryPlan,
+    matches: QueryCondition[],
+    tokenSearch?: TokenSearch,
+  ): Promise<T[]> {
+    const conditions = [...plan.primaryConditions, ...plan.postFilterConditions].filter(
+      (condition) => condition.type !== "match",
+    )
+
+    let candidates: T[]
+
+    const ids = tokenSearch
+      ? await this.#intersectTokenSearches(tokenSearch, collectionName, matches)
+      : null
+    if (ids) {
+      candidates = await this.#readByIds<T>(adapter, collectionName, ids)
+    } else {
+      candidates = (await adapter.findAll(collectionName)) as T[]
+    }
+
+    // The predicate — not the index — decides membership.
+    return this.#applyFilters(candidates, [...matches, ...conditions])
+  }
+
+  /**
+   * Ids matching **every** `match` condition, or `null` when the token index
+   * cannot answer (then the caller scans).
+   */
+  async #intersectTokenSearches(
+    tokenSearch: TokenSearch,
+    collectionName: string,
+    matches: QueryCondition[],
+  ): Promise<ID[] | null> {
+    const sets = await Promise.all(
+      matches.map((condition) =>
+        tokenSearch(collectionName, String(condition.value), condition.fields),
+      ),
+    )
+
+    // Any condition the index cannot answer sends the whole query to the scan
+    // path: intersecting a partial answer would silently drop rows.
+    if (sets.some((ids) => ids === undefined)) return null
+
+    const [first, ...rest] = sets as ID[][]
+    if (!first) return null
+
+    const intersection = new Set(first)
+    for (const ids of rest) {
+      const keep = new Set(ids)
+      for (const id of intersection) {
+        if (!keep.has(id)) intersection.delete(id)
+      }
+    }
+    return [...intersection]
+  }
+
+  /** Read a specific set of ids, one bulk call when the adapter offers it. */
+  async #readByIds<T extends object>(
+    adapter: StorageAdapter,
+    collectionName: string,
+    ids: ID[],
+  ): Promise<T[]> {
+    if (ids.length === 0) return []
+
+    if (adapter.findByIds) {
+      const records = await adapter.findByIds(collectionName, ids)
+      return records.filter(
+        (record): record is Record<string, unknown> => record !== undefined,
+      ) as T[]
+    }
+
+    const records = await Promise.all(ids.map((id) => adapter.findById(collectionName, id)))
+    return records.filter(
+      (record): record is Record<string, unknown> => record !== undefined,
+    ) as T[]
   }
 
   #applyFilters<T extends object>(records: T[], conditions: QueryCondition[]): T[] {

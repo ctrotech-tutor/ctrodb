@@ -114,6 +114,17 @@ export function queries() {
 
   // @ts-expect-error the value must match the field type
   posts.query().where("views", ">", "ten")
+  // `match` is the tokenised form; fields are typed like any other field name.
+  posts.query().match("typescript")
+  posts.query().match("typescript", ["title"])
+  posts.query().match("typescript", ["title", "authorId"])
+  // @ts-expect-error `nope` is not a field of posts
+  posts.query().match("typescript", ["nope"])
+
+  // Optional string fields are searchable too: making `title` optional used to
+  // collapse the key type to `never`, so this line did not compile.
+  posts.query().search("title", "hello")
+
   // @ts-expect-error the field must exist
   posts.query().where("nope", 1)
   // @ts-expect-error unknown operator

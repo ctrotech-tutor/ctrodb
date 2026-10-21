@@ -252,7 +252,8 @@ query.orWhere((q) => q.where(...))           // OR group
 query.sort({ field: "asc" | "desc" })       // Sort
 query.limit(n)                              // Limit results
 query.offset(n)                             // Skip results
-query.search(field, term)                   // Full-text search
+query.search(field, term)                   // Substring match on one field
+query.match(text, fields?)                  // Tokenised AND match (index-backed)
 await query.fetch()                         // Execute, return models
 await query.first()                         // First result or undefined
 await query.count()                         // Count results
@@ -362,11 +363,33 @@ Inverted-index FTS with automatic indexing on create/update/delete.
 > deliberate: changing `search()` to tokenised matching would silently change
 > results for existing callers.
 
-**Basic search (substring matching) — no plugin required:**
+**Two different questions, deliberately:**
+
+| call | meaning | needs the plugin |
+|---|---|---|
+| `query().search(field, text)` | case-insensitive **substring** on one field | no |
+| `query().match(text, fields?)` | every **token** of `text` appears as a whole word | no, but the index makes it fast |
+
 ```typescript
-// Case-insensitive substring search
-const results = await articles.query().search("title", "typescript").fetch()
+// Substring: "quickfix" matches "quick".
+await articles.query().search("title", "quick").fetch()
+
+// Tokenised: "quickfix" does NOT match "quick", and every token must appear.
+await articles.query().match("typescript database").fetch()
+await articles.query().match("typescript", ["title"]).fetch()
 ```
+
+Without `fields`, `match()` searches the collection's declared `searchable`
+fields — exactly what the plugin indexes. With `ftsPlugin()` installed the query
+becomes one index lookup per token instead of a scan of the collection; without
+it, the same predicate runs over a scan. **The plugin changes how fast this
+runs, never what it returns**, and the tests assert that by running every case
+both ways. On 5,000 documents a one-hit query takes 0.07 ms with the index and
+8.8 ms without.
+
+Field names are typed from the document, so `match("x", ["nope"])` is a compile
+error on a `defineSchema()` database, and the collection must declare
+`searchable` fields (or you must pass them) or `match()` throws `QueryError`.
 
 **Indexed search (tokenized AND) — requires `ftsPlugin()`:**
 ```typescript
