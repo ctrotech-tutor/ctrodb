@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
   "files": {
-    "includes": ["src/**/*.ts", "tests/**/*.ts"]
+    "includes": [
+      "src/**/*.ts",
+      "tests/**/*.ts",
+      "tests/**/*.tsx",
+      "scripts/**/*.mjs",
+      "scripts/**/*.ts",
+      "scripts/**/*.tsx"
+    ]
   },
   "linter": {
     "enabled": true,
@@ -32,5 +39,24 @@
       "trailingCommas": "all",
       "semicolons": "asNeeded"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "tests/**",
+        "scripts/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off",
+            "useNodejsImportProtocol": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }

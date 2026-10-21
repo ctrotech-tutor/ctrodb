@@ -1,19 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { HttpTransport } from "../../../src/sync/http-transport"
+import type { SyncChangeRecord, SyncPullResult, SyncPushResult } from "../../../src/sync/types"
 import { SyncResponseValidationError } from "../../../src/sync/validation"
-import type {
-  SyncChangeRecord,
-  SyncPushResult,
-  SyncPullResult,
-} from "../../../src/sync/types"
 
 // ── Helpers ──
 
-function mockFetch(
-  status: number,
-  body: unknown,
-  options?: { ok?: boolean },
-): void {
+function mockFetch(status: number, body: unknown, options?: { ok?: boolean }): void {
   const isOk = status >= 200 && status < 300
   vi.spyOn(globalThis, "fetch").mockImplementation(
     (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -34,10 +26,7 @@ function mockFetch(
         resolve({
           ok: options?.ok ?? isOk,
           status,
-          text: () =>
-            Promise.resolve(
-              typeof body === "string" ? body : JSON.stringify(body),
-            ),
+          text: () => Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)),
           json: () => Promise.resolve(body),
         } as Response)
       })
@@ -245,9 +234,9 @@ describe("HttpTransport", () => {
       const controller = new AbortController()
       controller.abort(new DOMException("Cancelled", "AbortError"))
 
-      await expect(
-        transport.push([makeChange()], { signal: controller.signal }),
-      ).rejects.toThrow("Cancelled")
+      await expect(transport.push([makeChange()], { signal: controller.signal })).rejects.toThrow(
+        "Cancelled",
+      )
     })
   })
 
@@ -395,9 +384,7 @@ describe("HttpTransport", () => {
       const controller = new AbortController()
       controller.abort(new DOMException("User cancelled", "AbortError"))
 
-      await expect(transport.pull({ signal: controller.signal })).rejects.toThrow(
-        "User cancelled",
-      )
+      await expect(transport.pull({ signal: controller.signal })).rejects.toThrow("User cancelled")
     })
   })
 
@@ -495,9 +482,7 @@ describe("HttpTransport", () => {
       transport = new HttpTransport({ url: "https://api.example.com/sync" })
       mockFetch(200, { accepted: "not-an-array", conflicts: [], errors: [] })
 
-      await expect(transport.push([makeChange()])).rejects.toThrow(
-        SyncResponseValidationError,
-      )
+      await expect(transport.push([makeChange()])).rejects.toThrow(SyncResponseValidationError)
     })
 
     it("throws SyncResponseValidationError on malformed pull response", async () => {
@@ -511,9 +496,7 @@ describe("HttpTransport", () => {
       transport = new HttpTransport({ url: "https://api.example.com/sync" })
       mockFetch(200, { conflicts: [], errors: [] })
 
-      await expect(transport.push([makeChange()])).rejects.toThrow(
-        SyncResponseValidationError,
-      )
+      await expect(transport.push([makeChange()])).rejects.toThrow(SyncResponseValidationError)
     })
 
     it("throws on pull response missing changes array", async () => {
@@ -611,9 +594,7 @@ describe("HttpTransport", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (globalThis as any).fetch
 
-      expect(
-        () => new HttpTransport({ url: "https://api.example.com/sync" }),
-      ).toThrow("fetch")
+      expect(() => new HttpTransport({ url: "https://api.example.com/sync" })).toThrow("fetch")
 
       globalThis.fetch = origFetch
     })

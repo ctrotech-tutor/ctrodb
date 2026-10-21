@@ -122,7 +122,7 @@ export class Database {
   }
 
   collection<T extends object = Record<string, unknown>>(name: string): Collection<T> {
-    if (!this.#connected && name !== "_create") {
+    if (!this.#connected) {
       throw new ConnectionError(this.name)
     }
 

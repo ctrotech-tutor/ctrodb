@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { MemoryAdapter } from "../../../src/adapter/memory"
 import { ChangeTracker } from "../../../src/sync/change-tracker"
 import type { SyncChangeRecord } from "../../../src/sync/types"
@@ -9,7 +9,10 @@ function createTracker(): { tracker: ChangeTracker; adapter: MemoryAdapter } {
   return { tracker, adapter }
 }
 
-async function seed(tracker: ChangeTracker, overrides: Partial<SyncChangeRecord>[]): Promise<string[]> {
+async function seed(
+  tracker: ChangeTracker,
+  overrides: Partial<SyncChangeRecord>[],
+): Promise<string[]> {
   const ids: string[] = []
   for (const override of overrides) {
     const id = await tracker.append(
@@ -24,7 +27,7 @@ async function seed(tracker: ChangeTracker, overrides: Partial<SyncChangeRecord>
   return ids
 }
 
-async function setStatus(tracker: ChangeTracker, id: string, status: string): Promise<void> {
+async function _setStatus(tracker: ChangeTracker, id: string, status: string): Promise<void> {
   switch (status) {
     case "syncing":
       await tracker.markSyncing([id])
@@ -40,12 +43,12 @@ async function setStatus(tracker: ChangeTracker, id: string, status: string): Pr
 
 describe("ChangeTracker", () => {
   let tracker: ChangeTracker
-  let adapter: MemoryAdapter
+  let _adapter: MemoryAdapter
 
   beforeEach(() => {
     const ctx = createTracker()
     tracker = ctx.tracker
-    adapter = ctx.adapter
+    _adapter = ctx.adapter
   })
 
   describe("init", () => {
@@ -147,7 +150,7 @@ describe("ChangeTracker", () => {
 
   describe("getPending", () => {
     it("returns changes sorted by timestamp ascending", async () => {
-      const ids = await seed(tracker, [
+      const _ids = await seed(tracker, [
         { type: "create", data: { order: 1 } },
         { type: "create", data: { order: 2 } },
         { type: "create", data: { order: 3 } },
@@ -208,10 +211,7 @@ describe("ChangeTracker", () => {
     })
 
     it("updates multiple records at once", async () => {
-      const ids = await seed(tracker, [
-        { type: "create" },
-        { type: "update" },
-      ])
+      const ids = await seed(tracker, [{ type: "create" }, { type: "update" }])
 
       await tracker.markSyncing(ids)
 
@@ -246,7 +246,7 @@ describe("ChangeTracker", () => {
 
       await tracker.markCommitted(id, { serverTimestamp: "2026-06-28T00:00:00Z" })
 
-      const record = await tracker.getById(id) as Record<string, unknown>
+      const record = (await tracker.getById(id)) as Record<string, unknown>
       expect(record.serverTimestamp).toBe("2026-06-28T00:00:00Z")
     })
   })
@@ -301,11 +301,7 @@ describe("ChangeTracker", () => {
 
   describe("countByStatus", () => {
     it("counts by status", async () => {
-      const ids = await seed(tracker, [
-        { type: "create" },
-        { type: "create" },
-        { type: "create" },
-      ])
+      const ids = await seed(tracker, [{ type: "create" }, { type: "create" }, { type: "create" }])
       await tracker.markSyncing([ids[0]!])
       await tracker.markCommitted(ids[1]!)
       await tracker.markFailed(ids[2]!, "error")
@@ -323,21 +319,14 @@ describe("ChangeTracker", () => {
 
   describe("countPending", () => {
     it("counts pending and failed changes", async () => {
-      const ids = await seed(tracker, [
-        { type: "create" },
-        { type: "create" },
-      ])
+      const ids = await seed(tracker, [{ type: "create" }, { type: "create" }])
       await tracker.markFailed(ids[1]!, "error")
 
       expect(await tracker.countPending()).toBe(2)
     })
 
     it("excludes syncing and committed", async () => {
-      const ids = await seed(tracker, [
-        { type: "create" },
-        { type: "create" },
-        { type: "create" },
-      ])
+      const ids = await seed(tracker, [{ type: "create" }, { type: "create" }, { type: "create" }])
       await tracker.markSyncing([ids[0]!])
       await tracker.markCommitted(ids[1]!)
 
@@ -347,11 +336,7 @@ describe("ChangeTracker", () => {
 
   describe("removeCommitted", () => {
     it("removes all committed changes", async () => {
-      const ids = await seed(tracker, [
-        { type: "create" },
-        { type: "create" },
-        { type: "create" },
-      ])
+      const ids = await seed(tracker, [{ type: "create" }, { type: "create" }, { type: "create" }])
       await tracker.markCommitted(ids[0]!)
       await tracker.markCommitted(ids[1]!)
 
@@ -375,10 +360,7 @@ describe("ChangeTracker", () => {
 
   describe("getAll", () => {
     it("returns all records", async () => {
-      await seed(tracker, [
-        { type: "create" },
-        { type: "update" },
-      ])
+      await seed(tracker, [{ type: "create" }, { type: "update" }])
 
       const all = await tracker.getAll()
       expect(all.length).toBe(2)
@@ -391,10 +373,7 @@ describe("ChangeTracker", () => {
 
   describe("getFailed", () => {
     it("returns only failed changes", async () => {
-      const ids = await seed(tracker, [
-        { type: "create" },
-        { type: "create" },
-      ])
+      const ids = await seed(tracker, [{ type: "create" }, { type: "create" }])
       await tracker.markFailed(ids[0]!, "error")
 
       const failed = await tracker.getFailed()

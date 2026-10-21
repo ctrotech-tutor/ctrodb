@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest"
+import { describe, expect, it } from "vitest"
+import type { SyncPullResult, SyncPushResult } from "../../../src/sync/types"
 import {
   SyncResponseValidationError,
   validatePullResult,
   validatePushResult,
 } from "../../../src/sync/validation"
-import type { SyncPullResult, SyncPushResult } from "../../../src/sync/types"
 
 // ── validatePushResult ──
 

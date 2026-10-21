@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { WsTransport } from "../../../src/sync/ws-transport"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { SyncChangeRecord, SyncPullResult, SyncPushResult } from "../../../src/sync/types"
 import { SyncResponseValidationError } from "../../../src/sync/validation"
-import type { SyncChangeRecord, SyncPushResult, SyncPullResult } from "../../../src/sync/types"
+import { WsTransport } from "../../../src/sync/ws-transport"
 
 // ── Mock WebSocket ──
 
@@ -259,9 +259,9 @@ describe("WsTransport", () => {
       const controller = new AbortController()
       controller.abort(new DOMException("Cancelled", "AbortError"))
 
-      await expect(
-        transport.push([makeChange()], { signal: controller.signal }),
-      ).rejects.toThrow("Cancelled")
+      await expect(transport.push([makeChange()], { signal: controller.signal })).rejects.toThrow(
+        "Cancelled",
+      )
     })
 
     it("rejects on error response", async () => {
@@ -441,9 +441,7 @@ describe("WsTransport", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (globalThis as any).WebSocket
 
-      expect(() => new WsTransport({ url: "wss://api.example.com/sync" })).toThrow(
-        "WebSocket",
-      )
+      expect(() => new WsTransport({ url: "wss://api.example.com/sync" })).toThrow("WebSocket")
 
       globalThis.WebSocket = origWs
     })

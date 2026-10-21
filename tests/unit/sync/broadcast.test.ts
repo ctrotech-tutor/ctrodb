@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Database } from "../../../src/database"
+import { ChangeTracker, closeChangeChannel, TAB_ID } from "../../../src/sync/change-tracker"
 import { SyncEngine } from "../../../src/sync/sync-engine"
-import { ChangeTracker, TAB_ID, closeChangeChannel } from "../../../src/sync/change-tracker"
 import type {
-  SyncChangeRecord,
   SyncPluginConfig,
   SyncPullResult,
   SyncPushResult,
@@ -74,9 +73,11 @@ function makeMockWindow(): MockWindow {
 
 // ── Helpers ──
 
-function makeEngine(
-  overrides: Partial<SyncPluginConfig> & { transport?: SyncTransport } = {},
-): { engine: SyncEngine; db: Database; transport: MockTransport } {
+function makeEngine(overrides: Partial<SyncPluginConfig> & { transport?: SyncTransport } = {}): {
+  engine: SyncEngine
+  db: Database
+  transport: MockTransport
+} {
   const transport = (overrides.transport ?? new MockTransport()) as MockTransport
   const db = new Database({ adapter: "memory" })
   const config: SyncPluginConfig = {
@@ -91,7 +92,7 @@ function makeEngine(
 // ── Tests ──
 
 describe("BroadcastChannel — ChangeTracker", () => {
-  let mockWindow: MockWindow
+  let _mockWindow: MockWindow
 
   beforeEach(() => {
     MockBroadcastChannel.instances = []
@@ -183,7 +184,7 @@ describe("BroadcastChannel — ChangeTracker", () => {
 })
 
 describe("BroadcastChannel — SyncEngine subscription", () => {
-  let mockWindow: MockWindow
+  let _mockWindow: MockWindow
 
   beforeEach(() => {
     MockBroadcastChannel.instances = []
@@ -208,7 +209,7 @@ describe("BroadcastChannel — SyncEngine subscription", () => {
   })
 
   it("responds to broadcast change by emitting events and calling _emit", async () => {
-    const { engine, db, transport } = makeEngine({ autoSync: true })
+    const { engine, db } = makeEngine({ autoSync: true })
     await engine.init()
 
     const channel = MockBroadcastChannel.instances[0]

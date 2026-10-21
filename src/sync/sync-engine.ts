@@ -286,8 +286,6 @@ export class SyncEngine {
 
       await this.#tracker.removeCommitted()
 
-      await this.#refreshCounts()
-
       this.#emit({ phase: "complete", progress: total })
     } catch (error) {
       const err = error as Error
@@ -312,6 +310,14 @@ export class SyncEngine {
     } finally {
       this.#isSyncing = false
       this.#abortController = null
+      // Refresh in `finally`, not only on success: after a failed push the
+      // status used to keep reporting the counts from the last good cycle
+      // (audit L-12), so the UI showed "0 pending" while changes were waiting.
+      try {
+        await this.#refreshCounts()
+      } catch {
+        // Counts are advisory; never let them mask the sync outcome.
+      }
     }
   }
 

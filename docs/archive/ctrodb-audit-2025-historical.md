@@ -1,3 +1,19 @@
+> **Historical document — superseded, do not act on it.**
+>
+> This was a client-specific report written before the Phase 1 audit
+> ([`docs/audit/phase-1-audit.md`](../audit/phase-1-audit.md)). It is kept only
+> for context. Two of its central claims are wrong and were disproved by the
+> audit's probes:
+>
+> - "IndexedDB silently drops object stores not re-declared in `onupgradeneeded`"
+>   is **false** — stores persist across upgrades. The bug it describes was a
+>   missing FTS store on a *fresh* database, fixed in 1.4.0.
+> - "No built-in Sync Engine" — `src/sync` exists and has done since 1.4.0.
+>
+> Current status of every issue mentioned here is tracked in the Phase 1 audit.
+
+---
+
 # ctrodb — Full Audit & Fix Guide
 
 > Written for an AI agent. Each issue has: reproduction steps, root cause analysis, impact on Formit, and specific fix instructions.

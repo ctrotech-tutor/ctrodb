@@ -42,7 +42,7 @@ function exportedNames(rootDts) {
  * blocks; `declare class X` bodies are the only nested-block case here.
  */
 function skipDeclaration(lines, startIndex) {
-  const first = lines[startIndex]
+  const _first = lines[startIndex]
   let depth = 0
   let index = startIndex
 

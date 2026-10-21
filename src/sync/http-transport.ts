@@ -17,6 +17,14 @@ export interface HttpTransportConfig {
   pingEndpoint?: string
 }
 
+/**
+ * A caller-initiated abort says nothing about the server. A timeout does: the
+ * request was given its full budget and never answered.
+ */
+function isCallerAbort(options: { signal?: AbortSignal } | undefined): boolean {
+  return options?.signal?.aborted === true
+}
+
 export class HttpTransport implements SyncTransport {
   readonly name = "http"
 
@@ -57,7 +65,7 @@ export class HttpTransport implements SyncTransport {
   }
 
   async push(changes: SyncChangeRecord[], options?: PushOptions): Promise<SyncPushResult> {
-    const signal = this.#mergeSignals(options?.signal)
+    const merged = this.#mergeSignals(options?.signal)
 
     try {
       const response = await fetch(`${this.#config.url}/push`, {
@@ -67,7 +75,7 @@ export class HttpTransport implements SyncTransport {
           ...this.#config.headers,
         },
         body: JSON.stringify({ changes }),
-        signal,
+        signal: merged.signal,
         ...this.#config.fetchOptions,
       })
 
@@ -87,8 +95,13 @@ export class HttpTransport implements SyncTransport {
       const data = await response.json()
       return validatePushResult(data)
     } catch (error) {
-      this.#connected = false
+      // A caller-initiated abort says nothing about the server: it used to
+      // flip the transport to "disconnected" and suppress real sync attempts
+      // (audit L-14).
+      if (!isCallerAbort(options)) this.#connected = false
       throw error
+    } finally {
+      merged.dispose()
     }
   }
 
@@ -112,7 +125,7 @@ export class HttpTransport implements SyncTransport {
 
     const url = params.length > 0 ? `${baseUrl}/pull?${params.join("&")}` : `${baseUrl}/pull`
 
-    const signal = this.#mergeSignals(options?.signal)
+    const merged = this.#mergeSignals(options?.signal)
 
     try {
       const response = await fetch(url, {
@@ -122,7 +135,7 @@ export class HttpTransport implements SyncTransport {
           ...this.#config.headers,
         },
         body: method === "POST" ? JSON.stringify(body) : undefined,
-        signal,
+        signal: merged.signal,
         ...this.#config.fetchOptions,
       })
 
@@ -142,8 +155,10 @@ export class HttpTransport implements SyncTransport {
       const data = await response.json()
       return validatePullResult(data)
     } catch (error) {
-      this.#connected = false
+      if (!isCallerAbort(options)) this.#connected = false
       throw error
+    } finally {
+      merged.dispose()
     }
   }
 
@@ -160,15 +175,23 @@ export class HttpTransport implements SyncTransport {
     return undefined
   }
 
-  #mergeSignals(externalSignal?: AbortSignal): AbortSignal | undefined {
+  /**
+   * Combine the caller's signal with the configured timeout.
+   *
+   * Returns a `dispose()` that the caller must invoke when the request
+   * settles: the timeout timer and the abort listener are otherwise kept alive
+   * for the lifetime of the caller's signal (audit L-14).
+   */
+  #mergeSignals(externalSignal?: AbortSignal): { signal?: AbortSignal; dispose: () => void } {
     const timeoutMs = this.#config.timeoutMs
+    const noop = () => {}
 
     if (timeoutMs !== undefined && externalSignal === undefined) {
-      return AbortSignal.timeout(timeoutMs)
+      return { signal: AbortSignal.timeout(timeoutMs), dispose: noop }
     }
 
     if (timeoutMs === undefined) {
-      return externalSignal
+      return { signal: externalSignal, dispose: noop }
     }
 
     const controller = new AbortController()
@@ -176,13 +199,19 @@ export class HttpTransport implements SyncTransport {
       controller.abort(new DOMException("Request timed out", "TimeoutError"))
     }, timeoutMs)
 
-    if (externalSignal !== undefined) {
-      externalSignal.addEventListener("abort", () => {
-        clearTimeout(timeoutId)
-        controller.abort(externalSignal.reason)
-      })
+    const onExternalAbort = () => {
+      clearTimeout(timeoutId)
+      controller.abort(externalSignal?.reason)
     }
 
-    return controller.signal
+    externalSignal?.addEventListener("abort", onExternalAbort, { once: true })
+
+    return {
+      signal: controller.signal,
+      dispose: () => {
+        clearTimeout(timeoutId)
+        externalSignal?.removeEventListener("abort", onExternalAbort)
+      },
+    }
   }
 }

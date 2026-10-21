@@ -70,7 +70,7 @@ for (const file of ["dist/react/react.d.ts", "dist/react/react.d.cts"]) {
 
 const reactBundle = readFileSync(new URL("dist/react/react.mjs", root), "utf8")
 if (!/from\s*["']react["']/.test(reactBundle)) {
-  failures.push("dist/react/react.mjs does not import from \"react\" (React may be bundled)")
+  failures.push('dist/react/react.mjs does not import from "react" (React may be bundled)')
 }
 
 if (failures.length > 0) {

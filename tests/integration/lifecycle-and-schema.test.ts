@@ -13,12 +13,7 @@ import { Database } from "../../src/database"
 import { Schema } from "../../src/schema"
 import { inspectSyncQueue } from "../../src/sync/devtools"
 import { syncPlugin } from "../../src/sync/sync-plugin"
-import type {
-  PullOptions,
-  SyncPullResult,
-  SyncPushResult,
-  SyncTransport,
-} from "../../src/sync/types"
+import type { SyncPullResult, SyncPushResult, SyncTransport } from "../../src/sync/types"
 import type { CtroDBPlugin } from "../../src/types"
 
 const open: Database[] = []

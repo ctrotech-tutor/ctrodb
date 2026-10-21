@@ -1,4 +1,5 @@
 import type { ID, QueryCondition, QueryPlan, SortSpec, StorageAdapter } from "../types"
+import { matchesAll } from "./predicate"
 import { compareQueryKeys } from "./range"
 
 export class QueryExecutor {
@@ -120,34 +121,7 @@ export class QueryExecutor {
 
   #applyFilters<T extends object>(records: T[], conditions: QueryCondition[]): T[] {
     if (conditions.length === 0) return records
-    return records.filter((record) =>
-      conditions.every((cond) => {
-        if (cond.type === "search") {
-          const recordValue = (record as Record<string, unknown>)[cond.field]
-          if (typeof recordValue === "string" && typeof cond.value === "string") {
-            return recordValue.toLowerCase().includes(cond.value.toLowerCase())
-          }
-          return false
-        }
-        const recordValue = (record as Record<string, unknown>)[cond.field] as unknown
-        switch (cond.op) {
-          case "==":
-            return recordValue === cond.value
-          case "!=":
-            return recordValue !== cond.value
-          case ">":
-            return (recordValue as number) > (cond.value as number)
-          case ">=":
-            return (recordValue as number) >= (cond.value as number)
-          case "<":
-            return (recordValue as number) < (cond.value as number)
-          case "<=":
-            return (recordValue as number) <= (cond.value as number)
-          default:
-            return false
-        }
-      }),
-    )
+    return records.filter((record) => matchesAll(record as Record<string, unknown>, conditions))
   }
 
   /**

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { Database } from "../../src/database"
-import { Schema } from "../../src/schema"
 import { MemoryAdapter } from "../../src/adapter/memory"
+import { Database } from "../../src/database"
 import { ftsPlugin } from "../../src/plugins/fts/index"
 import { validationPlugin } from "../../src/plugins/validation/index"
-import type { CtroDBPlugin, ChangeEvent } from "../../src/types"
+import { Schema } from "../../src/schema"
+import type { CtroDBPlugin } from "../../src/types"
 
 describe("plugins integration", () => {
   it("FTS plugin indexes and searches documents through collection operations", async () => {
@@ -80,16 +80,16 @@ describe("plugins integration", () => {
 
     const contacts = db.collection("contacts")
 
-    await expect(
-      contacts.create({ name: "Test", email: "bad@email" }),
-    ).rejects.toThrow(/not a valid email|Field.*email/i)
+    await expect(contacts.create({ name: "Test", email: "bad@email" })).rejects.toThrow(
+      /not a valid email|Field.*email/i,
+    )
 
     const valid = await contacts.create({ name: "Test", email: "test@example.com" })
     expect(valid.name).toBe("Test")
 
-    await expect(
-      contacts.update(valid.id, { email: "bad@email" }),
-    ).rejects.toThrow(/not a valid email|Field.*email/i)
+    await expect(contacts.update(valid.id, { email: "bad@email" })).rejects.toThrow(
+      /not a valid email|Field.*email/i,
+    )
 
     await db.disconnect()
   })
@@ -99,14 +99,22 @@ describe("plugins integration", () => {
 
     const plugin1: CtroDBPlugin = {
       name: "plugin1",
-      onBeforeCreate: async () => { order.push("1.beforeCreate") },
-      onAfterCreate: async () => { order.push("1.afterCreate") },
+      onBeforeCreate: async () => {
+        order.push("1.beforeCreate")
+      },
+      onAfterCreate: async () => {
+        order.push("1.afterCreate")
+      },
     }
 
     const plugin2: CtroDBPlugin = {
       name: "plugin2",
-      onBeforeCreate: async () => { order.push("2.beforeCreate") },
-      onAfterCreate: async () => { order.push("2.afterCreate") },
+      onBeforeCreate: async () => {
+        order.push("2.beforeCreate")
+      },
+      onAfterCreate: async () => {
+        order.push("2.afterCreate")
+      },
     }
 
     const schema = new Schema({
@@ -130,12 +138,7 @@ describe("plugins integration", () => {
 
     await db.collection("items").create({ val: "test" })
 
-    expect(order).toEqual([
-      "1.beforeCreate",
-      "2.beforeCreate",
-      "1.afterCreate",
-      "2.afterCreate",
-    ])
+    expect(order).toEqual(["1.beforeCreate", "2.beforeCreate", "1.afterCreate", "2.afterCreate"])
 
     await db.disconnect()
   })

@@ -33,6 +33,24 @@ export class RecordNotFoundError extends CtrodbError {
   }
 }
 
+/**
+ * The browser refused a write because storage is full (IndexedDB
+ * `QuotaExceededError`, or a `DOMException` with the same name).
+ *
+ * Previously this surfaced as a raw `DOMException` from deep inside the
+ * adapter, so applications could not distinguish "you are out of space — free
+ * some and retry" from a programming error (audit L-15).
+ */
+export class StorageQuotaError extends CtrodbError {
+  constructor(detail?: string) {
+    super(
+      `Storage quota exceeded${detail ? `: ${detail}` : ""}. Free space (or clear ` +
+        "cached data) and retry; the write was not applied.",
+    )
+    this.name = "StorageQuotaError"
+  }
+}
+
 export class SchemaError extends CtrodbError {
   constructor(message: string) {
     super(message)

@@ -1,24 +1,25 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest"
-import { renderHook, act, waitFor } from "@testing-library/react"
+
+import { act, renderHook, waitFor } from "@testing-library/react"
 import React from "react"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { Database } from "../../src/database"
 import {
-  useQuery,
+  DatabaseProvider,
   useDoc,
   useMutation,
-  useSyncStatus,
+  useQuery,
   useSync,
-  DatabaseProvider,
+  useSyncStatus,
 } from "../../src/react"
 import { syncPlugin } from "../../src/sync/sync-plugin"
 import type {
+  PullOptions,
+  PushOptions,
   SyncChangeRecord,
   SyncPullResult,
   SyncPushResult,
   SyncTransport,
-  PushOptions,
-  PullOptions,
 } from "../../src/sync/types"
 
 const testSchema = {
@@ -82,10 +83,9 @@ describe("useQuery", () => {
       await db.collection("tasks").create({ title: "Done Task", done: true })
     })
 
-    const { result } = renderHook(() =>
-      useQuery("tasks", (q) => q.where("done", "==", true)),
-    { wrapper },
-    )
+    const { result } = renderHook(() => useQuery("tasks", (q) => q.where("done", "==", true)), {
+      wrapper,
+    })
 
     await waitFor(() => {
       expect(result.current.data.length).toBeGreaterThanOrEqual(1)
@@ -193,8 +193,10 @@ describe("useMutation", () => {
 })
 
 describe("DatabaseProvider", () => {
-  it("provides database through context", () => {
-    const { result } = renderHook(() => useQuery("tasks"), { wrapper })
+  it("provides database through context", async () => {
+    // The hook resolves its first query asynchronously; letting it settle
+    // inside `act` keeps the test from warning about unwrapped updates.
+    const { result } = await act(async () => renderHook(() => useQuery("tasks"), { wrapper }))
 
     expect(result.current).toHaveProperty("data")
     expect(result.current).toHaveProperty("loading")
@@ -322,8 +324,8 @@ describe("useSync", () => {
     await syncDb.disconnect()
   })
 
-  it("returns sync function and status", () => {
-    const { result } = renderHook(() => useSync(), { wrapper: syncWrapper })
+  it("returns sync function and status", async () => {
+    const { result } = await act(async () => renderHook(() => useSync(), { wrapper: syncWrapper }))
 
     expect(typeof result.current.sync).toBe("function")
     expect(result.current.status).toBeDefined()

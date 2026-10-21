@@ -90,7 +90,12 @@ describe("Model", () => {
   })
 
   it("keeps the synthetic field keys read-only (M-12)", () => {
-    const model = new Model({ id: "1" as any, name: "Alice" }, mockCollection(), mockDatabase(), null)
+    const model = new Model(
+      { id: "1" as any, name: "Alice" },
+      mockCollection(),
+      mockDatabase(),
+      null,
+    )
 
     expect(model.constructor).toBe(Model)
     expect(() => Object.defineProperty(model, "name", { value: "Mallory" })).toThrow(
@@ -101,7 +106,12 @@ describe("Model", () => {
   })
 
   it("does not mistake the wrapper for a thenable", async () => {
-    const model = new Model({ id: "1" as any, name: "Alice" }, mockCollection(), mockDatabase(), null)
+    const model = new Model(
+      { id: "1" as any, name: "Alice" },
+      mockCollection(),
+      mockDatabase(),
+      null,
+    )
     await expect(Promise.resolve(model)).resolves.toBe(model)
   })
 

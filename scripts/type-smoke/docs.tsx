@@ -75,11 +75,14 @@ export function TodoList() {
       {todos.map((todo) => (
         <li key={todo.id}>
           {todo.text}
-          <button onClick={() => void remove(todo.id)}>Delete</button>
+          <button type="button" onClick={() => void remove(todo.id)}>
+            Delete
+          </button>
           <span>{todo.status}</span>
         </li>
       ))}
       <button
+        type="button"
         onClick={() =>
           void create({
             text: "New task",
@@ -118,8 +121,12 @@ export function SyncWidgets() {
       <span>{error?.message}</span>
       <span>{one?.text}</span>
       <span>{current.name}</span>
-      <button onClick={() => void sync()}>Sync now</button>
-      <button onClick={() => void refresh()}>Refresh queue</button>
+      <button type="button" onClick={() => void sync()}>
+        Sync now
+      </button>
+      <button type="button" onClick={() => void refresh()}>
+        Refresh queue
+      </button>
       <SyncDevPanel />
       <SyncDevPanel maxEvents={10} />
     </div>
@@ -150,8 +157,7 @@ export async function modelExamples() {
 }
 
 // README → React error handling: `error` is `Error | undefined`, not `null`.
-export function withErrorState() {
+export function ErrorMessage() {
   const { error } = useQuery<Todo>("todos")
-  if (error instanceof Error) return error.message
-  return null
+  return <>{error instanceof Error ? error.message : null}</>
 }

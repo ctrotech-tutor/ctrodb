@@ -9,6 +9,7 @@ export {
   QueryError,
   RecordNotFoundError,
   SchemaError,
+  StorageQuotaError,
   ValidationError,
 } from "./errors"
 export { Model } from "./model/index"

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { Database } from "../../src/database"
-import { Schema } from "../../src/schema"
 import { MemoryAdapter } from "../../src/adapter/memory"
+import { Database } from "../../src/database"
 import { ftsPlugin } from "../../src/plugins/fts/index"
+import { Schema } from "../../src/schema"
 
 describe("FTS search integration", () => {
   it("indexes new documents and finds them by search", async () => {
@@ -109,7 +109,7 @@ describe("FTS search integration", () => {
     await db.connect()
 
     const pages = db.collection("pages")
-    const d1 = await pages.create({ title: "Keep Me" })
+    const _d1 = await pages.create({ title: "Keep Me" })
     const d2 = await pages.create({ title: "Delete Me" })
 
     expect(await pages.query().search("title", "keep").fetch()).toHaveLength(1)
